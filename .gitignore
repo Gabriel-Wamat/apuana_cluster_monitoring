@@ -1,0 +1,8 @@
+# Ambiente virtual local do dashboard
+apuana/.venv-monitor/
+**/.venv-monitor/
+
+# Runtime Streamlit / tunel
+apuana/streamlit-*.log
+apuana/streamlit-*.pid
+apuana/*.pid
