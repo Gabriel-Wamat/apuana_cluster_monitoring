@@ -160,6 +160,24 @@ def main() -> None:
 
     u = target_user.strip() or sc._user()
 
+    # Fila global no topo: primeira visao operacional do Apuana para todos os usuarios.
+    code_g, out_g, err_g = slurm_squeue_global(int(global_limit))
+    df_global = pd.DataFrame()
+    if code_g == 0:
+        hdr, rows = sc.parse_squeue_table(out_g)
+        if hdr and rows:
+            df_global = pd.DataFrame(rows[: int(global_limit)], columns=hdr)
+
+    st.markdown("##### Fila global do Apuana")
+    if code_g != 0:
+        show_slurm_error_friendly("squeue (global)", err_g, out_g)
+    elif df_global.empty:
+        st.info("Fila global vazia.")
+    else:
+        st.dataframe(df_global, width="stretch", hide_index=True, height=420)
+
+    st.divider()
+
     # Health-check accounting (evita multiplos timeouts sacct quando slurmdbd esta em baixo)
     pg_c, pg_o, pg_e = slurm_sacct_ping(u)
     acct_ok = pg_c == 0 and not sc.accounting_failed(pg_e, pg_o)
@@ -177,16 +195,6 @@ def main() -> None:
 
     _, uout, _ = slurm_squeue_users_raw()
     active_users = sc.active_users_from_squeue_stdout(uout)
-
-    # Fila global sempre carregada
-    code_g, out_g, err_g = slurm_squeue_global(int(global_limit))
-    df_global = pd.DataFrame()
-    if code_g == 0:
-        hdr, rows = sc.parse_squeue_table(out_g)
-        if hdr and rows:
-            df_global = pd.DataFrame(rows[: int(global_limit)], columns=hdr)
-    else:
-        show_slurm_error_friendly("squeue (global)", err_g, out_g)
 
     job_ids_from_queue: list[str] = []
     if not df_user.empty and df_user.shape[1] > 0:
@@ -259,13 +267,6 @@ def main() -> None:
                 if pending_reasons is not None and not pending_reasons.empty:
                     st.caption(f"**Motivos (pendentes):** {', '.join(f'{k}: {v}' for k, v in pending_reasons.items())}")
 
-        st.markdown("##### Fila global")
-        if df_global.empty:
-            st.info("Fila global vazia ou erro ao carregar.")
-        else:
-            st.dataframe(df_global, width="stretch", hide_index=True, height=360)
-
-        st.divider()
         st.markdown(f"##### Historico · `{u}`")
         if not st.session_state.get("acct_ok", True):
             st.info("Histórico indisponível (accounting offline).")
