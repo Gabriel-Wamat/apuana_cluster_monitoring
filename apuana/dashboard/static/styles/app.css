@@ -1,6 +1,6 @@
 :root{
   --bg:#0B0E0C;--s1:#14181A;--s2:#181D1F;--s3:#20262A;--bd:#262C30;
-  --p:#14C77B;--ph:#0FA866;--pd:#0E2A1E;
+  --p:#14C77B;--ph:#0FA866;--pd:#0E2A1E;--spark:#28E98F;
   --t:#F1F4F2;--t2:#A4ADB3;--t3:#6F7A80;
   --danger:#F0556C;--warn:#F0B429;--info:#5AA3F0;
 }
@@ -80,6 +80,23 @@ body{display:flex;min-height:100vh}
 .ov-grid{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
 @media(max-width:900px){.ov-grid{grid-template-columns:1fr}}
 .sec{margin-bottom:24px}
+.resource-sec{margin-bottom:28px}
+.resource-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:16px}
+@media(max-width:1200px){.resource-metrics{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:720px){.resource-metrics{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.resource-metrics{grid-template-columns:1fr}}
+.resource-metric{background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;
+  display:flex;flex-direction:column;gap:5px;min-height:88px}
+.resource-metric span{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.resource-metric strong{font-size:21px;line-height:1.15;color:var(--t);font-weight:700;word-break:break-word}
+.resource-metric small{font-size:11px;color:var(--t3);line-height:1.35}
+.metric-ok{color:var(--p)!important}
+.metric-info{color:var(--info)!important}
+.metric-warn{color:var(--warn)!important}
+.metric-danger{color:var(--danger)!important}
+.resource-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:16px;align-items:start}
+@media(max-width:980px){.resource-layout{grid-template-columns:1fr}}
+.job-name-cell{max-width:260px;overflow:hidden;text-overflow:ellipsis}
 
 /* card generic */
 .card{background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:16px 18px}
@@ -115,6 +132,7 @@ tbody tr:hover td{background:var(--s3);transition:background .1s}
 .alert{border-radius:10px;padding:12px 16px;font-size:13px;line-height:1.5;border-left:3px solid}
 .a-danger{background:rgba(240,85,108,.07);border-color:var(--danger);color:var(--danger)}
 .a-warn{background:rgba(240,180,41,.07);border-color:var(--warn);color:var(--warn)}
+.a-ok{background:rgba(20,199,123,.07);border-color:var(--p);color:var(--p)}
 
 /* user filter row */
 .filter-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
@@ -124,6 +142,38 @@ tbody tr:hover td{background:var(--s3);transition:background .1s}
 .filter-row input:focus{border-color:var(--p)}
 
 /* jobs view */
+.jobs-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:1100px){.jobs-grid{grid-template-columns:1fr}}
+.job-panel{background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:16px 18px}
+.job-panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.job-detail-empty{font-size:13px;color:var(--t3);padding:16px 0}
+.job-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding-bottom:14px;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.job-id{font:12px/1.5 'JetBrains Mono',monospace;color:var(--p);margin-bottom:2px}
+.job-title{font-size:20px;font-weight:700;color:var(--t);line-height:1.2;overflow-wrap:anywhere}
+.job-sub{font-size:12px;color:var(--t3);margin-top:6px;overflow-wrap:anywhere}
+.job-state{border-radius:999px;background:var(--s2);border:1px solid var(--bd);padding:5px 10px;
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.job-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+@media(max-width:1200px){.job-metrics{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.job-metrics{grid-template-columns:1fr}}
+.job-metric{background:var(--s2);border:1px solid var(--bd);border-radius:9px;padding:12px 14px;
+  display:flex;flex-direction:column;gap:5px;min-height:78px}
+.job-metric span{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.job-metric strong{font-size:18px;line-height:1.2;color:var(--t);font-weight:700;overflow-wrap:anywhere}
+.job-metric small{font-size:11px;color:var(--t3);line-height:1.35;overflow-wrap:anywhere}
+.job-sections{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.job-sections{grid-template-columns:1fr}}
+.job-section{border-top:1px solid var(--bd);padding-top:12px}
+.job-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
+.job-field{display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px;align-items:start;
+  padding:7px 0;border-top:1px solid rgba(38,44,48,.55)}
+.job-field:first-of-type{border-top:none}
+.job-field span{font-size:11px;color:var(--t3)}
+.job-field strong{font-size:12px;color:var(--t2);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job-field strong:hover{white-space:normal;overflow-wrap:anywhere}
+.job-mono{font-family:'JetBrains Mono',monospace;font-size:11px!important}
+.job-raw{margin-top:14px;max-height:360px;overflow:auto}
 .job-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
 .job-row input,.job-row select{height:36px;border-radius:7px;border:1px solid var(--bd);
   background:var(--s2);color:var(--t);font:13px/1 inherit;padding:0 10px;
@@ -137,7 +187,37 @@ tbody tr:hover td{background:var(--s3);transition:background .1s}
   padding:16px;overflow-x:auto;white-space:pre;min-height:80px}
 
 /* gpu */
-.gpu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.gpu-panel{background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:16px 18px}
+.gpu-panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.gpu-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.gpu-summary{margin-bottom:12px}
+.gpu-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+@media(max-width:1000px){.gpu-stat-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.gpu-stat-grid{grid-template-columns:1fr}}
+.gpu-stat-card{background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;
+  display:flex;flex-direction:column;gap:6px;min-height:82px}
+.gpu-stat-card span{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.gpu-stat-card strong{font-size:20px;line-height:1.2;color:var(--t);font-weight:700}
+.gpu-live{display:flex;align-items:center;gap:8px;color:var(--t2);font-size:13px;
+  background:rgba(20,199,123,.07);border-left:3px solid var(--p);border-radius:10px;
+  padding:11px 14px;margin-bottom:12px}
+.gpu-live strong{color:var(--p);font-weight:700}
+.gpu-live-dot{width:7px;height:7px;border-radius:50%;background:var(--p);box-shadow:0 0 0 4px rgba(20,199,123,.12)}
+.gpu-detail-card{background:transparent;border:0;border-radius:0;padding:0}
+.gpu-hero .job-title{font-size:20px}
+.gpu-job-metrics{margin-bottom:14px}
+.gpu-bar-section{border-top:1px solid var(--bd);padding-top:12px}
+.gpu-card{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+.gpu-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.gpu-chip{border-radius:999px;background:var(--pd);color:var(--p);padding:4px 9px;
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.gpu-temp{font-size:18px;font-weight:700;color:var(--t)}
+.gpu-name{font:12px/1.45 'JetBrains Mono',monospace;color:var(--t2);margin-bottom:12px;overflow-wrap:anywhere}
+.gpu-metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.gpu-metric{background:var(--s1);border:1px solid var(--bd);border-radius:8px;padding:10px}
+.gpu-metric span{display:block;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:4px}
+.gpu-metric strong{font-size:15px;color:var(--t);line-height:1.2}
+.gpu-raw{margin-top:14px;max-height:260px;overflow:auto}
 .prog-wrap{display:flex;flex-direction:column;gap:4px;margin-top:6px}
 .prog-row{display:flex;justify-content:space-between;font-size:11px;color:var(--t3)}
 .prog{height:5px;background:var(--s3);border-radius:3px;overflow:hidden}

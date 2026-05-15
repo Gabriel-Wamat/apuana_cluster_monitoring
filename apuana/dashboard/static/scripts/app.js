@@ -1,24 +1,89 @@
 const $ = id => document.getElementById(id);
 const hist = {run:[], pnd:[], total:[]};
 const MAX_HIST = 30;
+const SPARKLINE_COLOR = 'var(--spark)';
+const sparkRegistry = new Map();
+let sparkFrame = null;
 let _last = {};
 let transferState = {user:'', host:'slurm-client1.cin.ufpe.br', home:'', current:'', selectedKind:''};
+let gpuState = {jobId:'', response:null, raw:'', rawVisible:false, loadingId:''};
+let jobState = {raw:'', rawVisible:false, inspectedId:'', loadingId:''};
+
+function resolveCssColor(color, fallback = '#28E98F') {
+  const value = String(color || '').trim();
+  const match = value.match(/^var\((--[^,)]+)(?:,[^)]+)?\)$/);
+  if (!match) return value || fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || fallback;
+}
 
 /* sparkline */
 function sparkline(canvas, data, color) {
   if (!canvas || data.length < 2) return;
+  sparkRegistry.set(canvas.id, {
+    canvas,
+    data: data.slice(),
+    color: resolveCssColor(color),
+    phase: (canvas.id.charCodeAt(canvas.id.length - 1) || 0) / 20,
+  });
+  if (!sparkFrame) sparkFrame = requestAnimationFrame(drawSparklines);
+}
+
+function drawSparklines(ts) {
+  sparkRegistry.forEach((cfg, id) => {
+    if (!cfg.canvas.isConnected) {
+      sparkRegistry.delete(id);
+      return;
+    }
+    drawSparkline(cfg, ts);
+  });
+  sparkFrame = sparkRegistry.size ? requestAnimationFrame(drawSparklines) : null;
+}
+
+function drawSparkline(cfg, ts) {
+  const {canvas, data, color, phase} = cfg;
   const W = canvas.width, H = canvas.height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
   const mn = Math.min(...data), mx = Math.max(...data);
+  const flat = mx === mn;
   const rng = mx - mn || 1;
-  const pts = data.map((v, i) => [i / (data.length - 1) * W, H - ((v - mn) / rng) * (H - 4) - 2]);
+  const pts = data.map((v, i) => [
+    i / (data.length - 1) * W,
+    flat ? H / 2 : H - ((v - mn) / rng) * (H - 6) - 3,
+  ]);
+
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.75;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 2;
   ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  const progress = ((ts / 1700) + phase) % 1;
+  const span = pts.length - 1;
+  const raw = progress * span;
+  const left = Math.floor(raw);
+  const right = Math.min(left + 1, span);
+  const mix = raw - left;
+  const x = pts[left][0] + (pts[right][0] - pts[left][0]) * mix;
+  const y = pts[left][1] + (pts[right][1] - pts[left][1]) * mix;
+
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, 7);
+  glow.addColorStop(0, color);
+  glow.addColorStop(0.45, color);
+  glow.addColorStop(1, 'rgba(40,233,143,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 /* delta badge */
@@ -66,12 +131,12 @@ function usersTable(rows) {
     const pndC = s.pnd  ? `style="color:var(--warn)"` : `style="color:var(--t3)"`;
     const othC = s.other? `` : `style="color:var(--t3)"`;
     return `<tr>
-      <td style="font-weight:600;color:var(--t)">${name}</td>
+      <td style="font-weight:600;color:var(--t)">${esc(name)}</td>
       <td ${runC}>${s.run  || '-'}</td>
       <td ${pndC}>${s.pnd  || '-'}</td>
       <td ${othC}>${s.other|| '-'}</td>
       <td style="font-weight:600">${tot}</td>
-      <td style="color:var(--t3);font-size:12px">${[...s.parts].join(', ')}</td>
+      <td style="color:var(--t3);font-size:12px">${esc([...s.parts].join(', '))}</td>
     </tr>`;
   }).join('');
   return `<div class="tw"><table><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`;
@@ -85,7 +150,7 @@ function tbl(hdr, rows) {
   const tb = rows.map(r => {
     const cells = r.map((c, i) => {
       const cls = i === si ? ` class="${scCls(c)}"` : '';
-      return `<td${cls}>${c}</td>`;
+      return `<td${cls}>${esc(c)}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('');
@@ -104,6 +169,175 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
   }[c]));
+}
+
+function fmtMemMb(mb) {
+  const n = Number(mb || 0);
+  if (!n) return '-';
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} TiB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} GiB`;
+  return `${Math.round(n)} MiB`;
+}
+
+function resourceMetric(label, value, sub, tone) {
+  return `<div class="resource-metric">
+    <span>${esc(label)}</span>
+    <strong class="${tone || ''}">${esc(value)}</strong>
+    <small>${esc(sub || '')}</small>
+  </div>`;
+}
+
+function renderResources(d) {
+  const res = d.resources || {};
+  if (!res.ok) {
+    $('resource-summary').innerHTML = `<div class="alert a-warn">${esc(res.error || 'Resource data unavailable.')}</div>`;
+    $('resource-running').innerHTML = '<p class="empty">No resource data.</p>';
+    $('resource-users').innerHTML = '<p class="empty">No resource data.</p>';
+    return;
+  }
+
+  const running = res.running || {};
+  const pending = res.pending || {};
+  const current = res.current_user || {};
+  const load = res.login_cpu || {};
+  const mem = d.mem || {};
+  const loadText = `${Number(load.load1 || 0).toFixed(2)} / ${Number(load.cpus || 0)} cores`;
+  const memText = mem.pct != null ? `${mem.used} / ${mem.total}` : '-';
+
+  $('resource-summary').innerHTML = `<div class="resource-metrics">
+    ${resourceMetric('Running CPUs', running.cpus || 0, `${running.jobs || 0} running job(s)`, 'metric-ok')}
+    ${resourceMetric('Requested RAM', running.mem_human || fmtMemMb(running.mem_mb), 'RUNNING jobs', 'metric-info')}
+    ${resourceMetric('Pending CPUs', pending.cpus || 0, `${pending.jobs || 0} pending job(s)`, 'metric-warn')}
+    ${resourceMetric('Your CPUs', current.cpus || 0, `${current.mem_human || fmtMemMb(current.mem_mb)} RAM`, 'metric-ok')}
+    ${resourceMetric('Login RAM', memText, `${mem.pct ?? '-'}% used`, mem.pct >= 85 ? 'metric-danger' : '')}
+    ${resourceMetric('Login load', loadText, '1 minute average', load.load_pct >= 85 ? 'metric-danger' : '')}
+  </div>`;
+
+  const runningJobs = res.running_jobs || [];
+  $('resource-running').innerHTML = runningJobs.length ? `
+    <div class="tw"><table>
+      <thead><tr><th>JOBID</th><th>USER</th><th>PARTITION</th><th>NAME</th><th>CPUS</th><th>RAM</th><th>GPUS</th><th>NODES</th><th>TIME</th></tr></thead>
+      <tbody>${runningJobs.map(job => `<tr>
+        <td style="font-family:'JetBrains Mono',monospace;color:var(--t)">${esc(job.job_id)}</td>
+        <td style="font-weight:600;color:var(--t)">${esc(job.user)}</td>
+        <td>${esc(job.partition)}</td>
+        <td class="job-name-cell" title="${esc(job.name)}">${esc(job.name)}</td>
+        <td style="color:var(--p);font-weight:600">${esc(job.cpus)}</td>
+        <td>${esc(job.mem_human || fmtMemMb(job.mem_total_mb))}</td>
+        <td>${esc(job.gpus || 0)}</td>
+        <td>${esc(job.nodes || 1)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;color:var(--t3)">${esc(job.time)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p class="empty">No RUNNING jobs with CPU/RAM allocations.</p>';
+
+  const users = res.by_user || [];
+	  $('resource-users').innerHTML = users.length ? `
+    <div class="tw"><table>
+      <thead><tr><th>USER</th><th>JOBS</th><th>CPUS</th><th>RAM</th><th>GPUS</th></tr></thead>
+      <tbody>${users.map(user => `<tr>
+        <td style="font-weight:600;color:var(--t)">${esc(user.user)}</td>
+        <td>${esc(user.jobs)}</td>
+        <td style="color:var(--p);font-weight:600">${esc(user.cpus)}</td>
+        <td>${esc(user.mem_human || fmtMemMb(user.mem_mb))}</td>
+        <td>${esc(user.gpus || 0)}</td>
+      </tr>`).join('')}</tbody>
+	    </table></div>` : '<p class="empty">No users with RUNNING CPU/RAM allocations.</p>';
+}
+
+function cleanValue(value) {
+  const s = String(value ?? '').trim();
+  return s && s !== '(null)' && s !== 'N/A' ? s : '-';
+}
+
+function jobMetric(label, value, sub, tone) {
+  return `<div class="job-metric">
+    <span>${esc(label)}</span>
+    <strong class="${tone || ''}">${esc(cleanValue(value))}</strong>
+    <small>${esc(cleanValue(sub))}</small>
+  </div>`;
+}
+
+function jobField(label, value, mono) {
+  return `<div class="job-field">
+    <span>${esc(label)}</span>
+    <strong class="${mono ? 'job-mono' : ''}" title="${esc(cleanValue(value))}">${esc(cleanValue(value))}</strong>
+  </div>`;
+}
+
+function jobSection(title, rows) {
+  return `<div class="job-section">
+    <div class="job-section-title">${esc(title)}</div>
+    ${rows.join('')}
+  </div>`;
+}
+
+function renderJobInfo(data) {
+  jobState.loadingId = '';
+  jobState.inspectedId = data?.summary?.job_id || data?.job_id || jobState.inspectedId;
+  jobState.raw = data?.raw || '';
+  const rawEl = $('job-raw-output');
+  rawEl.textContent = jobState.raw || '';
+  rawEl.hidden = !jobState.rawVisible || !jobState.raw;
+
+  if (!data?.ok) {
+    $('job-output').className = '';
+    $('job-output').innerHTML = `<div class="alert a-danger">${esc(data?.error || 'Job lookup failed.')}</div>`;
+    return;
+  }
+
+  const s = data.summary || {};
+  const r = data.resources || {};
+  const state = cleanValue(s.state);
+  const stateClass = scCls(state);
+  const gpuTone = Number(r.gpus || 0) ? 'metric-info' : '';
+
+  $('job-output').className = '';
+  $('job-output').innerHTML = `
+    <div class="job-hero">
+      <div>
+        <div class="job-id">Job ${esc(s.job_id || data.job_id)}</div>
+        <div class="job-title">${esc(cleanValue(s.name))}</div>
+        <div class="job-sub">${esc(cleanValue(s.user))} · ${esc(cleanValue(s.account))} · ${esc(cleanValue(s.qos))}</div>
+      </div>
+      <span class="job-state ${stateClass}">${esc(state)}</span>
+    </div>
+
+    <div class="job-metrics">
+      ${jobMetric('Runtime', s.runtime, `limit ${cleanValue(s.time_limit)}`, 'metric-ok')}
+      ${jobMetric('CPUs', r.cpus || '-', `${r.tasks || '-'} task(s), ${r.cpus_per_task || '-'} per task`, 'metric-ok')}
+      ${jobMetric('Memory', r.memory || '-', `${r.nodes || '-'} node(s)`, 'metric-info')}
+      ${jobMetric('GPUs', r.gpus || 0, r.tres_per_node || r.tres || '-', gpuTone)}
+    </div>
+
+    <div class="job-sections">
+      ${jobSection('Scheduling', [
+        jobField('Partition', s.partition),
+        jobField('Reason', s.reason),
+        jobField('Scheduler', s.scheduler),
+        jobField('Exit code', s.exit_code),
+      ])}
+      ${jobSection('Timeline', [
+        jobField('Submitted', s.submit_time, true),
+        jobField('Started', s.start_time, true),
+        jobField('Ends', s.end_time, true),
+      ])}
+      ${jobSection('Placement', [
+        jobField('Nodes', s.node_list, true),
+        jobField('Batch host', s.batch_host, true),
+      ])}
+      ${jobSection('Files', [
+        jobField('Work dir', s.work_dir, true),
+        jobField('Command', s.command, true),
+        jobField('Stdout', s.stdout, true),
+        jobField('Stderr', s.stderr, true),
+      ])}
+    </div>`;
+}
+
+function toggleJobRaw() {
+  jobState.rawVisible = !jobState.rawVisible;
+  const rawEl = $('job-raw-output');
+  rawEl.hidden = !jobState.rawVisible || !jobState.raw;
 }
 
 function shellQuote(value) {
@@ -267,12 +501,163 @@ function ensureTransferReady() {
   if (!$('transfer-browser').innerHTML.trim()) browseTransfer();
 }
 
+function runningJobRows(d) {
+  return (d?.queue?.rows || []).filter(row => row[4] === 'RUNNING');
+}
+
+function jobPriority(row, currentUser) {
+  const isMine = row[1] === currentUser ? 0 : 1;
+  const stateRank = row[4] === 'RUNNING' ? 0 : row[4] === 'PENDING' ? 1 : 2;
+  return `${isMine}-${stateRank}-${row[0]}`;
+}
+
+function orderedJobRows(d) {
+  const user = d?.user || '';
+  return [...(d?.queue?.rows || [])].sort((a, b) =>
+    jobPriority(a, user).localeCompare(jobPriority(b, user), undefined, {numeric:true})
+  );
+}
+
+function preferredJobId(d) {
+  const user = d?.user || '';
+  const rows = orderedJobRows(d);
+  const mine = rows.find(row => row[1] === user && row[4] === 'RUNNING')
+    || rows.find(row => row[1] === user)
+    || rows[0];
+  return mine?.[0] || '';
+}
+
+function populateJobSelect(d) {
+  const sel = $('job-queue-sel');
+  if (!sel) return '';
+  const rows = orderedJobRows(d);
+  const preferred = preferredJobId(d);
+  const previous = sel.value || jobState.inspectedId || preferred;
+  sel.innerHTML = '<option value="">From queue</option>' +
+    rows.map(row => {
+      const mine = row[1] === d?.user ? 'Mine - ' : '';
+      return `<option value="${esc(row[0])}">${mine}${esc(row[0])} - ${esc(row[3])} (${esc(row[4])})</option>`;
+    }).join('');
+
+  if (previous && rows.some(row => row[0] === previous)) {
+    sel.value = previous;
+  } else if (preferred) {
+    sel.value = preferred;
+  }
+  return sel.value;
+}
+
+function maybeAutoInspectJob() {
+  const input = $('job-id-in');
+  if (input?.value.trim() && document.activeElement === input) return;
+  const id = input?.value.trim() || $('job-queue-sel')?.value || '';
+  if (!id || jobState.inspectedId === id || jobState.loadingId === id) return;
+  fetchJob(id);
+}
+
+function ownRunningGpuJobs(d) {
+  const user = d?.user || '';
+  return (d?.resources?.running_jobs || [])
+    .filter(job => job.user === user && Number(job.gpus || 0) > 0);
+}
+
+function selectedGpuJobId() {
+  return ($('gpu-job-id')?.value || '').trim() || ($('gpu-job-sel')?.value || '').trim();
+}
+
+function renderGpuResult(data) {
+  if (!data) return;
+  const gpus = data.gpus || [];
+  const raw = [
+    `$ ${data.command || `srun --immediate=1 --jobid=${data.base_job_id || data.job_id || ''} nvidia-smi`}`,
+    data.stdout || data.stderr || data.error || ''
+  ].filter(Boolean).join('\n\n');
+  gpuState = {
+    ...gpuState,
+    jobId:data.job_id || selectedGpuJobId(),
+    response:data,
+    raw,
+    loadingId:'',
+  };
+  $('gpu-output').textContent = raw;
+  $('gpu-output').hidden = !gpuState.rawVisible || !raw;
+
+  if (!data.ok) {
+    $('gpu-status').innerHTML = `<div class="alert a-warn">${esc(data.error || 'GPU telemetry unavailable for this job.')}</div>`;
+    $('gpu-cards').innerHTML = '';
+    return;
+  }
+
+  $('gpu-status').innerHTML = `<div class="gpu-live">
+    <span class="gpu-live-dot"></span>
+    <span>Live telemetry for job <strong>${esc(data.base_job_id || data.job_id)}</strong></span>
+  </div>`;
+  $('gpu-cards').innerHTML = gpus.map(g => {
+    const mPct = Math.round(g.mem_used / g.mem_total * 100);
+    const utilTone = g.util >= 80 ? 'metric-ok' : g.util >= 30 ? 'metric-info' : '';
+    const tempTone = g.temp > 80 ? 'metric-danger' : g.temp > 65 ? 'metric-warn' : '';
+    return `<div class="gpu-detail-card">
+      <div class="job-hero gpu-hero">
+        <div>
+          <div class="job-id">GPU ${esc(g.index)}</div>
+          <div class="job-title">${esc(g.name)}</div>
+          <div class="job-sub">Job ${esc(data.base_job_id || data.job_id)} · nvidia-smi via srun</div>
+        </div>
+        <span class="job-state ${tempTone}">${esc(g.temp)}&deg;C</span>
+      </div>
+
+      <div class="job-metrics gpu-job-metrics">
+        ${jobMetric('Utilization', `${g.util}%`, 'compute load', utilTone)}
+        ${jobMetric('VRAM used', `${g.mem_used} MiB`, `${mPct}% of device memory`, 'metric-info')}
+        ${jobMetric('VRAM total', `${g.mem_total} MiB`, 'available on device', '')}
+        ${jobMetric('Temperature', `${g.temp}°C`, 'current reading', tempTone)}
+      </div>
+
+      <div class="gpu-bar-section">
+        ${prog(g.util,'pp','Utilization',`${g.util}%`)}
+        ${prog(mPct,'pi','VRAM',`${g.mem_used} / ${g.mem_total} MiB`)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleGpuRaw() {
+  gpuState.rawVisible = !gpuState.rawVisible;
+  const rawEl = $('gpu-output');
+  rawEl.hidden = !gpuState.rawVisible || !gpuState.raw;
+}
+
+function populateGpuJobs(d) {
+  const sel = $('gpu-job-sel');
+  if (!sel) return [];
+  const running = ownRunningGpuJobs(d);
+  const previous = sel.value || gpuState.jobId;
+  sel.innerHTML = '<option value="">Your running GPU job</option>' +
+    running.map(job => `<option value="${esc(job.job_id)}">${esc(job.job_id)} - ${esc(job.name)} - ${esc(job.partition)}</option>`).join('');
+  if (previous && running.some(job => job.job_id === previous)) {
+    sel.value = previous;
+  } else if (!selectedGpuJobId() && running.length) {
+    sel.value = running[0].job_id;
+  }
+  return running;
+}
+
+function ensureGpuReady() {
+  const running = populateGpuJobs(_last);
+  const jobId = selectedGpuJobId();
+  if (!running.length && !jobId) {
+    $('gpu-status').innerHTML = '<div class="alert a-warn">No RUNNING GPU jobs for this user.</div>';
+    $('gpu-cards').innerHTML = '';
+    $('gpu-output').textContent = 'No running GPU job selected.';
+  }
+}
+
 /* setView */
 function setView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
   $('view-' + name).classList.add('active');
-  const idx = ['overview','jobs','gpu','logs','transfer','cluster'].indexOf(name);
+  const idx = ['overview','jobs','logs','transfer','cluster'].indexOf(name);
   document.querySelectorAll('.nb')[idx]?.classList.add('active');
   renderView(name, _last);
   if (name === 'logs') fetchLogs();
@@ -315,7 +700,7 @@ function renderKpis(d) {
     </div>`).join('');
 
   kpis.forEach((k, i) => {
-    if (k.hist.length > 1) sparkline($('sp'+i), k.hist, k.col);
+    if (k.hist.length > 1) sparkline($('sp'+i), k.hist, SPARKLINE_COLOR);
   });
 }
 
@@ -325,6 +710,8 @@ function renderView(name, d) {
   const rows = d.queue?.rows || [];
 
   if (name === 'overview') {
+    renderResources(d);
+
     /* users summary table */
     $('users-table').innerHTML = d.queue?.ok
       ? usersTable(rows)
@@ -346,19 +733,19 @@ function renderView(name, d) {
       : '<p class="empty">No queued jobs for this user.</p>';
 
     /* health list */
-    const qOk = d.queue?.ok, sOk = d.sinfo?.ok, gpuN = d.gpus?.length || 0;
+    const qOk = d.queue?.ok, sOk = d.sinfo?.ok, runningJobs = rows.filter(r => r[4] === 'RUNNING').length;
     const checks = [
       { name:'Login',      s:'ok',                      sum:`${d.node} responds` },
       { name:'Queue',      s:qOk?'ok':'degraded',       sum:qOk?'squeue OK':(d.queue?.error||'failed').slice(0,50) },
       { name:'Partitions', s:sOk?'ok':'degraded',       sum:sOk?'sinfo OK':(d.sinfo?.error||'failed').slice(0,50) },
-      { name:'Accounting', s:d.acct_ok?'ok':'degraded', sum:d.acct_ok?'sacct OK':'slurmdbd offline' },
-      { name:'GPU login',  s:gpuN?'ok':'degraded',      sum:gpuN?`${gpuN} GPU(s)`:'No GPU on login' },
+      { name:'Resources',  s:d.resources?.ok?'ok':'degraded', sum:d.resources?.ok?'CPU/RAM OK':(d.resources?.error||'failed').slice(0,50) },
+      { name:'GPU jobs',   s:runningJobs?'ok':'degraded', sum:runningJobs?`${runningJobs} running job(s)`:'No running jobs' },
     ];
     $('health-list').innerHTML = checks.map(c => `
       <div class="health-item">
-        <span class="health-name">${c.name}</span>
+        <span class="health-name">${esc(c.name)}</span>
         ${badge(c.s)}
-        <span class="health-sum">${c.sum}</span>
+        <span class="health-sum">${esc(c.sum)}</span>
       </div>`).join('');
 
     /* disk usage */
@@ -408,35 +795,13 @@ function renderView(name, d) {
   }
 
   if (name === 'jobs') {
-    /* populate queue select */
-    const sel = $('job-queue-sel');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">From queue</option>' +
-      rows.map(r => `<option value="${r[0]}">${r[0]} - ${r[3]} (${r[4]})</option>`).join('');
-    if (prev) sel.value = prev;
-  }
-
-  if (name === 'gpu') {
-    const gpus = d.gpus || [];
-    if (gpus.length) {
-      $('gpu-empty').style.display = 'none';
-      $('gpu-cards').innerHTML = gpus.map(g => {
-        const mPct = Math.round(g.mem_used / g.mem_total * 100);
-        const tCol = g.temp > 80 ? 'var(--danger)' : g.temp > 65 ? 'var(--warn)' : 'var(--t2)';
-        return `<div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-            <span style="font-size:13px;font-weight:600">GPU ${g.index}</span>
-            <span style="font-size:14px;font-weight:600;color:${tCol}">${g.temp}&deg;C</span>
-          </div>
-          <div style="font:11px/1.5 'JetBrains Mono',monospace;color:var(--t3);margin-bottom:6px">${g.name}</div>
-          ${prog(g.util,'pp','Utilization',`${g.util}%`)}
-          ${prog(mPct,'pi','VRAM',`${g.mem_used} / ${g.mem_total} MiB`)}
-        </div>`;
-      }).join('');
-    } else {
-      $('gpu-empty').style.display = '';
-      $('gpu-cards').innerHTML = '';
-    }
+    populateJobSelect(d);
+    maybeAutoInspectJob();
+    populateGpuJobs(d);
+    const gpuJobId = selectedGpuJobId();
+    if (gpuState.response && gpuState.jobId === gpuJobId) renderGpuResult(gpuState.response);
+    else if (gpuJobId && gpuState.loadingId !== gpuJobId) fetchJobGpu(gpuJobId);
+    else ensureGpuReady();
   }
 
   if (name === 'cluster') {
@@ -477,14 +842,53 @@ function render(d) {
 }
 
 /* job lookup */
-function fetchJob() {
-  const id = $('job-id-in').value.trim() || $('job-queue-sel').value;
-  if (!id) { $('job-output').textContent = 'Enter a Job ID.'; return; }
+function fetchJob(forcedId) {
+  const id = String(forcedId || $('job-id-in').value.trim() || $('job-queue-sel').value || '').trim();
+  if (!id) {
+    $('job-output').className = 'job-detail-empty';
+    $('job-output').textContent = 'Enter a Job ID.';
+    return;
+  }
+  jobState.loadingId = id;
+  jobState.raw = '';
+  $('job-raw-output').textContent = '';
+  $('job-raw-output').hidden = true;
+  $('job-output').className = 'job-detail-empty';
   $('job-output').textContent = 'Inspecting...';
-  fetch('/api/job?id=' + encodeURIComponent(id))
-    .then(r => r.text())
-    .then(t => { $('job-output').textContent = t; })
-    .catch(() => { $('job-output').textContent = 'Endpoint /api/job nao implementado.'; });
+  fetch('/api/job-info?id=' + encodeURIComponent(id))
+    .then(r => r.json())
+    .then(renderJobInfo)
+    .catch(() => {
+      jobState.loadingId = '';
+      $('job-output').className = '';
+      $('job-output').innerHTML = '<div class="alert a-danger">Endpoint /api/job-info is unavailable.</div>';
+    });
+}
+
+function fetchJobGpu(forcedId) {
+  const id = String(forcedId || selectedGpuJobId() || '').trim();
+  if (!id) {
+    $('gpu-status').innerHTML = '<div class="alert a-warn">Select one of your RUNNING GPU jobs.</div>';
+    $('gpu-cards').innerHTML = '';
+    $('gpu-output').textContent = 'No running GPU job selected.';
+    $('gpu-output').hidden = true;
+    return;
+  }
+
+  gpuState = {...gpuState, jobId:id, response:null, loadingId:id, raw:''};
+  $('gpu-status').innerHTML = '<div class="alert a-warn">Inspecting job GPU telemetry...</div>';
+  $('gpu-cards').innerHTML = '';
+  $('gpu-output').textContent = 'Running srun...';
+  $('gpu-output').hidden = true;
+  fetch('/api/job-gpu?id=' + encodeURIComponent(id))
+    .then(r => r.json())
+    .then(renderGpuResult)
+    .catch(() => {
+      gpuState.loadingId = '';
+      $('gpu-status').innerHTML = '<div class="alert a-danger">Could not reach /api/job-gpu.</div>';
+      $('gpu-output').textContent = 'Request failed.';
+      $('gpu-output').hidden = true;
+    });
 }
 
 /* poll */
@@ -511,6 +915,17 @@ function fetchLogs() {
 poll();
 setInterval(poll, 5000);
 $('user-in').addEventListener('input', () => renderView('overview', _last));
+$('job-queue-sel').addEventListener('change', () => {
+  $('job-id-in').value = '';
+  jobState.inspectedId = '';
+  if ($('job-queue-sel').value) fetchJob();
+});
+$('job-id-in').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') {
+    jobState.inspectedId = '';
+    fetchJob();
+  }
+});
 ['log-out-path','log-err-path'].forEach(id => {
   $(id).addEventListener('change', fetchLogs);
 });
@@ -524,4 +939,14 @@ $('user-in').addEventListener('input', () => renderView('overview', _last));
   $(id).addEventListener('keydown', ev => {
     if (ev.key === 'Enter') browseTransfer();
   });
+});
+['gpu-job-id'].forEach(id => {
+  $(id).addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') fetchJobGpu();
+  });
+});
+$('gpu-job-sel').addEventListener('change', () => {
+  $('gpu-job-id').value = '';
+  gpuState = {...gpuState, jobId:'', response:null, raw:'', loadingId:''};
+  fetchJobGpu();
 });

@@ -17,11 +17,8 @@
     <button class="nb active" onclick="setView('overview')" title="Overview">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
     </button>
-    <button class="nb" onclick="setView('jobs')" title="Jobs">
+    <button class="nb" onclick="setView('jobs')" title="Jobs and GPU">
       <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
-    </button>
-    <button class="nb" onclick="setView('gpu')" title="GPU">
-      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     </button>
     <button class="nb" onclick="setView('logs')" title="Logs">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -54,13 +51,27 @@
 
   <!-- VIEW: OVERVIEW -->
   <div class="view active" id="view-overview">
+    <div class="kpi-grid" id="kpis"></div>
+    <div class="sec resource-sec">
+      <div class="sec-title">CPU and memory usage</div>
+      <div id="resource-summary"></div>
+      <div class="resource-layout">
+        <div>
+          <div class="card-title">Running allocations</div>
+          <div id="resource-running"></div>
+        </div>
+        <div>
+          <div class="card-title">Running totals by user</div>
+          <div id="resource-users"></div>
+        </div>
+      </div>
+    </div>
     <div class="ov-grid">
       <div>
         <div class="sec">
           <div class="sec-title">Global queue - <span id="q-global-count" style="color:var(--t3);font-size:10px;text-transform:none;letter-spacing:0"></span></div>
           <div id="q-global"></div>
         </div>
-        <div class="kpi-grid" id="kpis"></div>
         <div class="sec">
           <div class="sec-title">Users in queue</div>
           <div id="users-table"></div>
@@ -97,28 +108,47 @@
 
   <!-- VIEW: JOBS -->
   <div class="view" id="view-jobs">
-    <div class="sec-title" style="margin-bottom:12px">Inspect job</div>
-    <div class="job-row">
-      <input id="job-id-in" type="text" placeholder="Job ID (ex: 12345)" style="width:200px">
-      <select id="job-queue-sel" style="width:180px"><option value="">From queue</option></select>
-      <button onclick="fetchJob()">Inspect</button>
-    </div>
-    <div class="card">
-      <div class="card-title">scontrol show job</div>
-      <div class="code-block" id="job-output">Enter a Job ID and click Inspect.</div>
-    </div>
-  </div>
+    <div class="jobs-grid">
+      <div>
+        <div class="sec-title" style="margin-bottom:12px">Inspect job</div>
+        <div class="job-row">
+          <input id="job-id-in" type="text" placeholder="Job ID (ex: 12345)" style="width:200px">
+          <select id="job-queue-sel" style="width:180px"><option value="">From queue</option></select>
+          <button onclick="fetchJob()">Inspect</button>
+        </div>
+        <div class="job-panel">
+          <div class="job-panel-head">
+            <div class="card-title">Job details</div>
+            <button class="mini-btn" onclick="toggleJobRaw()">Raw output</button>
+          </div>
+          <div id="job-output" class="job-detail-empty">Enter a Job ID and click Inspect.</div>
+          <div class="code-block job-raw" id="job-raw-output" hidden></div>
+        </div>
+      </div>
 
-  <!-- VIEW: GPU -->
-  <div class="view" id="view-gpu">
-    <div class="sec-title" style="margin-bottom:12px">GPU - login node</div>
-    <div class="gpu-grid" id="gpu-cards"></div>
-    <p class="empty" id="gpu-empty" style="display:none">No visible GPU on the login node.</p>
+      <div>
+        <div class="sec-title" style="margin-bottom:12px">GPU telemetry</div>
+        <div class="job-row">
+          <select id="gpu-job-sel" style="width:260px"><option value="">Your running GPU job</option></select>
+          <input id="gpu-job-id" type="text" placeholder="Your running Job ID" style="width:180px">
+          <button onclick="fetchJobGpu()">Inspect GPU</button>
+        </div>
+        <div class="gpu-panel">
+          <div class="gpu-panel-head">
+            <div class="card-title">GPU details</div>
+            <button class="mini-btn" onclick="toggleGpuRaw()">Raw telemetry</button>
+          </div>
+          <div id="gpu-status"></div>
+          <div class="gpu-grid" id="gpu-cards"></div>
+          <div class="code-block gpu-raw" id="gpu-output" hidden>Select one of your running GPU jobs.</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- VIEW: LOGS -->
   <div class="view" id="view-logs">
-    <div class="sec-title" style="margin-bottom:16px">Logs de job</div>
+    <div class="sec-title" style="margin-bottom:16px">Job logs</div>
     <div class="logs-grid">
       <div class="log-pane">
         <label>Stdout path</label>
