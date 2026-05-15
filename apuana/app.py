@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Dashboard Streamlit para monitoramento SLURM (generico; configuravel via SLURM_MONITOR_*).
+Streamlit dashboard for SLURM monitoring, configurable through SLURM_MONITOR_*.
 
-Logica partilhada: slurm_core.py (testavel com `python slurm_core.py`).
+Shared logic lives in slurm_core.py and is testable with `python slurm_core.py`.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ import slurm_core as sc
 
 def show_slurm_error_friendly(title: str, stderr: str, stdout: str) -> None:
     st.error(f"{title}: {sc.human_slurm_failure(stderr, stdout)}")
-    with st.expander("Detalhes tecnicos (stderr/stdout)"):
-        st.code((stderr or "(stderr vazio)") + "\n---\n" + (stdout or ""), language="text")
+    with st.expander("Technical details (stderr/stdout)"):
+        st.code((stderr or "(empty stderr)") + "\n---\n" + (stdout or ""), language="text")
 
 
 @st.cache_data(ttl=5, show_spinner=False)
@@ -110,7 +110,7 @@ def main() -> None:
     )
 
     st.title(_title)
-    st.caption(f"{sc._user()} · {os.uname().nodename} · {datetime.now():%Y-%m-%d %H:%M}")
+    st.caption(f"{sc._user()} - {os.uname().nodename} - {datetime.now():%Y-%m-%d %H:%M}")
 
     _def_log = sc.env_monitor("DEFAULT_LOG_OUT", str(Path.home() / "slurm-dashboard.out"))
     if "log_out" not in st.session_state:
@@ -124,35 +124,35 @@ def main() -> None:
         )
 
     if sc.REPO_ROOT == sc.DASHBOARD_DIR:
-        pass  # Silencioso: nao afeta funcionalidade
+        pass  # Silent: does not affect functionality.
 
     with st.sidebar:
-        st.markdown("### Fila Slurm")
+        st.markdown("### SLURM Queue")
         target_user = st.text_input(
-            "Utilizador",
+            "User",
             value=sc._user(),
             placeholder=sc._user(),
         )
-        st.markdown("### Fila global")
-        global_limit = st.number_input("Max linhas (global)", 50, 2000, 200, step=50)
+        st.markdown("### Global Queue")
+        global_limit = st.number_input("Max rows (global)", 50, 2000, 200, step=50)
 
-        with st.expander("Historico accounting (sacct)", expanded=False):
-            sacct_hours = st.slider("Horas", 6, 168, 48)
-            sacct_lines = st.slider("Max linhas", 20, 300, 80)
+        with st.expander("Accounting history (sacct)", expanded=False):
+            sacct_hours = st.slider("Hours", 6, 168, 48)
+            sacct_lines = st.slider("Max rows", 20, 300, 80)
 
-        st.markdown("### Leitura de logs")
-        st.slider("Linhas tail", 40, 600, 160, key="dash_tail_n")
-        st.toggle("GPU via srun no job", value=True, key="dash_gpu_srun")
+        st.markdown("### Log Reading")
+        st.slider("Tail lines", 40, 600, 160, key="dash_tail_n")
+        st.toggle("GPU via srun on the job", value=True, key="dash_gpu_srun")
 
-        with st.expander("Ambiente & diagnostico", expanded=False):
+        with st.expander("Environment & diagnostics", expanded=False):
             st.code(sc.env_block_compact(), language="text")
             sacct_err_hint = st.session_state.get("sacct_last_err", "")
-            if st.button("Copiar diagnostico", width="stretch"):
+            if st.button("Copy diagnostics", width="stretch"):
                 st.session_state["diag_clip"] = sc.build_diag_text(sacct_err_hint)
             if st.session_state.get("diag_clip"):
-                st.text_area("Copiar daqui", value=st.session_state["diag_clip"], height=120)
+                st.text_area("Copy from here", value=st.session_state["diag_clip"], height=120)
 
-        with st.expander("Tunel SSH", expanded=False):
+        with st.expander("SSH tunnel", expanded=False):
             st.code(
                 f"ssh -N -L 8501:localhost:8501 {sc._user()}@{os.uname().nodename}",
                 language="bash",
@@ -160,7 +160,7 @@ def main() -> None:
 
     u = target_user.strip() or sc._user()
 
-    # Fila global no topo: primeira visao operacional do Apuana para todos os usuarios.
+    # Global queue at the top: the first operational view for all Apuana users.
     code_g, out_g, err_g = slurm_squeue_global(int(global_limit))
     df_global = pd.DataFrame()
     if code_g == 0:
@@ -168,24 +168,24 @@ def main() -> None:
         if hdr and rows:
             df_global = pd.DataFrame(rows[: int(global_limit)], columns=hdr)
 
-    st.markdown("##### Fila global do Apuana")
+    st.markdown("##### Global Apuana Queue")
     if code_g != 0:
         show_slurm_error_friendly("squeue (global)", err_g, out_g)
     elif df_global.empty:
-        st.info("Fila global vazia.")
+        st.info("The global queue is empty.")
     else:
         st.dataframe(df_global, width="stretch", hide_index=True, height=420)
 
     st.divider()
 
-    # Health-check accounting (evita multiplos timeouts sacct quando slurmdbd esta em baixo)
+    # Accounting health check avoids repeated sacct timeouts when slurmdbd is down.
     pg_c, pg_o, pg_e = slurm_sacct_ping(u)
     acct_ok = pg_c == 0 and not sc.accounting_failed(pg_e, pg_o)
     st.session_state["acct_ok"] = acct_ok
     if not acct_ok:
         st.warning(
-            "⚠️ Histórico de jobs (`sacct`) indisponível neste nó. "
-            "Tente outro nó de login ou contacte o admin do cluster."
+            "Job history (`sacct`) is unavailable on this login node. "
+            "Try another login node or contact the cluster administrator."
         )
 
     code_u, out_u, err_u = slurm_squeue_user(u)
@@ -201,11 +201,11 @@ def main() -> None:
         idcol = df_user.columns[0]
         job_ids_from_queue = [str(x) for x in df_user[idcol].tolist() if str(x)]
 
-    tabs = st.tabs(["Visao geral", "Job", "GPU", "Logs", "Cluster", "Processos", "Avancado"])
+    tabs = st.tabs(["Overview", "Job", "GPU", "Logs", "Cluster", "Processes", "Advanced"])
 
     with tabs[0]:
         health = slurm_cluster_health(u)
-        st.markdown("##### Saude operacional")
+        st.markdown("##### Operational Health")
         health_cols = st.columns(min(5, max(1, len(health))))
         badge = {"ok": "OK", "degraded": "DEGRADED", "unavailable": "UNAVAILABLE"}
         for i, item in enumerate(health):
@@ -215,12 +215,12 @@ def main() -> None:
                     st.caption(badge.get(item.status, item.status.upper()))
                     st.write(item.summary)
                     if item.detail:
-                        with st.expander("Detalhe", expanded=False):
+                        with st.expander("Details", expanded=False):
                             st.code(item.detail[:2000], language="text")
 
         st.divider()
 
-        # KPIs (inspiracao: cartoes da "Visao geral" React — dados reais, uma unica chamada sacct)
+        # KPIs from real data, with a single sacct call when accounting is available.
         dfb_hist = pd.DataFrame()
         sacct_hist_ok = False
         auo0, aue0 = "", ""
@@ -237,18 +237,18 @@ def main() -> None:
 
         k1, k2, k3 = st.columns(3)
         with k1:
-            st.metric("A correr", n_run)
+            st.metric("Running", n_run)
         with k2:
-            st.metric("Pendentes", n_pd)
+            st.metric("Pending", n_pd)
         with k3:
             if n_bad is None:
-                st.metric("Problemas", "—")
+                st.metric("Problems", "-")
             else:
-                st.metric("Problemas", n_bad)
+                st.metric("Problems", n_bad)
 
-        st.markdown(f"##### Fila · `{u}`")
+        st.markdown(f"##### Queue - `{u}`")
         if df_user.empty:
-            st.info("Sem jobs na fila para este utilizador.")
+            st.info("No queued jobs for this user.")
         else:
             st.dataframe(
                 df_user,
@@ -259,51 +259,51 @@ def main() -> None:
             if "ST" in df_user.columns or "S" in df_user.columns:
                 col = "ST" if "ST" in df_user.columns else "S"
                 vc = df_user[col].value_counts()
-                st.caption(" · ".join(f"{k}: {v}" for k, v in vc.items()))
+                st.caption(" - ".join(f"{k}: {v}" for k, v in vc.items()))
             
-            # Mostrar REASON para jobs pendentes (insights valiosos)
+            # Show REASON for pending jobs.
             if not df_user.empty and "ST" in df_user.columns and (df_user["ST"] == "PD").any():
                 pending_reasons = df_user[df_user["ST"] == "PD"]["REASON"].value_counts() if "REASON" in df_user.columns else None
                 if pending_reasons is not None and not pending_reasons.empty:
-                    st.caption(f"**Motivos (pendentes):** {', '.join(f'{k}: {v}' for k, v in pending_reasons.items())}")
+                    st.caption(f"**Pending reasons:** {', '.join(f'{k}: {v}' for k, v in pending_reasons.items())}")
 
-        st.markdown(f"##### Historico · `{u}`")
+        st.markdown(f"##### History - `{u}`")
         if not st.session_state.get("acct_ok", True):
-            st.info("Histórico indisponível (accounting offline).")
+            st.info("History unavailable (accounting offline).")
         elif not sacct_hist_ok:
-            show_slurm_error_friendly("sacct (historico)", aue0, auo0)
+            show_slurm_error_friendly("sacct (history)", aue0, auo0)
         elif dfb_hist.empty:
-            with st.expander("Resposta vazia"):
-                st.code(auo0 or "(vazio)", language="text")
+            with st.expander("Empty response"):
+                st.code(auo0 or "(empty)", language="text")
         else:
             st.dataframe(dfb_hist, width="stretch", hide_index=True)
 
     with tabs[1]:
-        st.markdown("##### Inspecionar job")
+        st.markdown("##### Inspect Job")
         st.radio(
-            "Origem do JobID",
-            ["Da fila", "Manual"],
+            "JobID source",
+            ["From queue", "Manual"],
             horizontal=True,
             key="dash_job_source",
             label_visibility="collapsed",
         )
-        src = st.session_state.get("dash_job_source", "Da fila")
-        if src == "Da fila":
-            st.selectbox("Escolher job ativo", [""] + job_ids_from_queue, key="dash_job_pick")
+        src = st.session_state.get("dash_job_source", "From queue")
+        if src == "From queue":
+            st.selectbox("Choose active job", [""] + job_ids_from_queue, key="dash_job_pick")
         else:
-            st.text_input("JobID (ex.: 12345 ou 12345.batch)", key="dash_job_manual", placeholder="ID do job")
+            st.text_input("JobID (ex.: 12345 or 12345.batch)", key="dash_job_manual", placeholder="Job ID")
 
         pick = str(st.session_state.get("dash_job_pick", "") or "")
         manual = str(st.session_state.get("dash_job_manual", "") or "")
         jid = sc.effective_job_id(src, pick, manual)
 
         if not jid:
-            st.info("Selecione um job acima.")
+            st.info("Select a job above.")
         else:
             st.success(f"**{jid}**")
             
-            # Tabs para organizar a info do job
-            job_tabs = st.tabs(["Detalhes", "Eficiencia", "Tempo real", "Historico"])
+            # Tabs for job details.
+            job_tabs = st.tabs(["Details", "Efficiency", "Live stats", "History"])
             
             with job_tabs[0]:
                 scode, sout, serr = slurm_scontrol(jid)
@@ -315,16 +315,16 @@ def main() -> None:
                         st.code(sout or serr, language="bash")
             
             with job_tabs[1]:
-                st.markdown("###### seff (eficiencia)")
+                st.markdown("###### seff (efficiency)")
                 ef_c, ef_o, ef_e = slurm_seff(jid)
                 if ef_c == 0 and ef_o.strip():
                     st.code(ef_o, language="text")
                 else:
-                    st.info("Eficiência indisponível (job ainda não iniciou ou `seff` não instalado).")
+                    st.info("Efficiency unavailable (job has not started yet or `seff` is not installed).")
             
             with job_tabs[2]:
-                st.markdown("###### sstat (tempo real)")
-                st.caption("Só funciona com jobs RUNNING (MaxRSS, AveCPU, etc).")
+                st.markdown("###### sstat (live stats)")
+                st.caption("Only works with RUNNING jobs (MaxRSS, AveCPU, etc).")
                 st_c, st_o, st_e = slurm_sstat(jid)
                 if st_c == 0 and st_o.strip():
                     try:
@@ -333,12 +333,12 @@ def main() -> None:
                     except Exception:
                         st.code(st_o, language="text")
                 else:
-                    st.info("Não disponível (job não está RUNNING ou step não tem recursos alocados).")
+                    st.info("Unavailable (job is not RUNNING or the step has no allocated resources).")
             
             with job_tabs[3]:
                 st.markdown("###### sacct -j")
                 if not st.session_state.get("acct_ok", True):
-                    st.info("Histórico indisponível.")
+                    st.info("History unavailable.")
                 else:
                     acode, aout, aerr = slurm_sacct_job(jid, int(sacct_lines))
                     st.session_state["sacct_last_err"] = aerr or ""
@@ -347,8 +347,8 @@ def main() -> None:
                     else:
                         dfa = sc.parse_sacct_parsable2(aout)
                         if dfa.empty:
-                            with st.expander("Resposta vazia"):
-                                st.code(aout or "(vazio)", language="text")
+                            with st.expander("Empty response"):
+                                st.code(aout or "(empty)", language="text")
                         else:
                             st.dataframe(dfa, width="stretch", hide_index=True)
 
@@ -357,7 +357,7 @@ def main() -> None:
 
         @st.fragment(run_every=timedelta(seconds=2))
         def _gpu_panel():
-            src_l = st.session_state.get("dash_job_source", "Da fila")
+            src_l = st.session_state.get("dash_job_source", "From queue")
             pick_l = str(st.session_state.get("dash_job_pick", "") or "")
             manual_l = str(st.session_state.get("dash_job_manual", "") or "")
             jid_live = sc.effective_job_id(src_l, pick_l, manual_l)
@@ -370,7 +370,7 @@ def main() -> None:
                     r = rs
                     label = f"srun --immediate=1 --jobid={base}"
                 elif rs.code == 124:
-                    pass  # Silencioso: timeout e esperado com --immediate
+                    pass  # Silent: timeout is expected with --immediate.
             hb = st.columns([3, 2])
             with hb[0]:
                 st.markdown(f"**{datetime.now():%H:%M:%S}**")
@@ -401,25 +401,25 @@ def main() -> None:
                     with st.container(border=True):
                         h1, h2 = st.columns([4, 1])
                         with h1:
-                            st.markdown(f"**GPU {ix}** · `{nm[:56]}{'…' if len(nm) > 56 else ''}`")
+                            st.markdown(f"**GPU {ix}** - `{nm[:56]}{'...' if len(nm) > 56 else ''}`")
                         with h2:
-                            st.metric("Temp °C", f"{temp:.0f}")
-                        st.progress(min(1.0, max(0.0, util)), text=f"Utilizacao GPU {util * 100:.0f}%")
+                            st.metric("Temp C", f"{temp:.0f}")
+                        st.progress(min(1.0, max(0.0, util)), text=f"GPU utilization {util * 100:.0f}%")
                         st.progress(mem_r, text=f"VRAM {mu:.0f} / {mt:.0f} MiB")
-                fig = sc.plot_gpu_util(df_gpu, f"Utilizacao agregada · {label}")
+                fig = sc.plot_gpu_util(df_gpu, f"Aggregate utilization - {label}")
                 if fig is not None:
                     st.pyplot(fig)
                     plt.close(fig)
             else:
-                st.warning("Nao foi possivel obter CSV da GPU.")
-                with st.expander("nvidia-smi texto"):
+                st.warning("Could not obtain GPU CSV data.")
+                with st.expander("nvidia-smi text"):
                     rr = sc.nvsmi_raw()
                     st.code(rr.stdout or rr.stderr, language="text")
 
         _gpu_panel()
 
     with tabs[3]:
-        st.markdown("##### Ficheiros de log")
+        st.markdown("##### Log Files")
         candidates = sc.discover_log_candidates(50)
         if candidates:
             ncols = min(4, max(1, len(candidates)))
@@ -427,7 +427,7 @@ def main() -> None:
                 row = candidates[row_start : row_start + ncols]
                 cols = st.columns(len(row))
                 for j, path in enumerate(row):
-                    short = path.name[:28] + ("…" if len(path.name) > 28 else "")
+                    short = path.name[:28] + ("..." if len(path.name) > 28 else "")
                     if cols[j].button(short, key=f"logp_{row_start + j}", help=str(path)):
                         st.session_state.log_out = str(path)
                         st.session_state.log_err = str(path.with_suffix(".err"))
@@ -441,22 +441,22 @@ def main() -> None:
 
         @st.fragment(run_every=timedelta(seconds=3))
         def _logs_panel():
-            # Tentativa inteligente: usar fallback se o ficheiro configurado nao existir
+            # Smart fallback when the configured file does not exist.
             pout_res, pout_msg = sc.validate_log_path(st.session_state.log_out)
             eout_res, eout_msg = sc.validate_log_path(st.session_state.log_err)
             
-            # Se path validado nao existir, procurar fallback
+            # If the validated path does not exist, look for a fallback.
             if pout_res and not pout_res.exists():
                 fb = sc.find_best_log_fallback(str(pout_res), ".out")
                 if fb:
                     pout_res = fb
-                    pout_msg = f"Usando fallback (mais recente): {fb}"
+                    pout_msg = f"Using fallback (newest): {fb}"
             
             if eout_res and not eout_res.exists():
                 fb_err = sc.find_best_log_fallback(str(eout_res), ".err")
                 if fb_err:
                     eout_res = fb_err
-                    eout_msg = f"Usando fallback (mais recente): {fb_err}"
+                    eout_msg = f"Using fallback (newest): {fb_err}"
             
             g1, g2 = st.columns(2)
             with g1:
@@ -464,12 +464,12 @@ def main() -> None:
                 if pout_res is None:
                     st.error(pout_msg)
                 elif not pout_res.exists():
-                    st.warning(f"Ficheiro nao existe e nenhum .out encontrado: {pout_res}")
+                    st.warning(f"File does not exist and no .out file was found: {pout_res}")
                 else:
                     if "fallback" in pout_msg.lower():
-                        st.info(pout_msg, icon="ℹ️")
+                        st.info(pout_msg, icon="info")
                     st.caption(
-                        f"{pout_res.name} · {pout_res.stat().st_size // 1024} KiB · "
+                        f"{pout_res.name} - {pout_res.stat().st_size // 1024} KiB - "
                         f"{datetime.fromtimestamp(pout_res.stat().st_mtime):%H:%M:%S}"
                     )
                     tr = sc.run_tail(str(pout_res), int(st.session_state.get("dash_tail_n", 160)))
@@ -480,12 +480,12 @@ def main() -> None:
                 if eout_res is None:
                     st.error(eout_msg)
                 elif not eout_res.exists():
-                    st.warning(f"Ficheiro nao existe e nenhum .err encontrado: {eout_res}")
+                    st.warning(f"File does not exist and no .err file was found: {eout_res}")
                 else:
                     if "fallback" in eout_msg.lower():
-                        st.info(eout_msg, icon="ℹ️")
+                        st.info(eout_msg, icon="info")
                     st.caption(
-                        f"{eout_res.name} · {eout_res.stat().st_size // 1024} KiB · "
+                        f"{eout_res.name} - {eout_res.stat().st_size // 1024} KiB - "
                         f"{datetime.fromtimestamp(eout_res.stat().st_mtime):%H:%M:%S}"
                     )
                     tr = sc.run_tail(str(eout_res), int(st.session_state.get("dash_tail_n", 160)))
@@ -508,28 +508,28 @@ def main() -> None:
                 st.dataframe(dfi, width="stretch", hide_index=True)
                 parts_pb, fr_pb = sc.partition_idle_series(dfi)
                 if parts_pb:
-                    st.markdown("##### Ocupacao por particao")
+                    st.markdown("##### Partition occupancy")
                     for pname, frac in zip(parts_pb, fr_pb):
                         st.progress(
                             float(frac),
-                            text=f"{pname} — ~{int(round(frac * 100))}% idle",
+                            text=f"{pname} - ~{int(round(frac * 100))}% idle",
                         )
                 if len(dfi) <= 24:
-                    fig2 = sc.plot_partition_idle(dfi, "Idle por particao (barras)")
+                    fig2 = sc.plot_partition_idle(dfi, "Idle by partition (bars)")
                     if fig2 is not None:
                         st.pyplot(fig2)
                         plt.close(fig2)
                     if 2 <= len(dfi) <= 20:
-                        fig_h = sc.plot_partition_heatmap(dfi, "Idle por particao (heatmap)")
+                        fig_h = sc.plot_partition_heatmap(dfi, "Idle by partition (heatmap)")
                         if fig_h is not None:
                             st.pyplot(fig_h)
                             plt.close(fig_h)
             else:
-                with st.expander("sinfo (texto)"):
+                with st.expander("sinfo (text)"):
                     st.code(so or se, language="text")
 
     with tabs[5]:
-        st.markdown("##### Processos")
+        st.markdown("##### Processes")
 
         painel_sh = sc.DASHBOARD_DIR / "painel_slurm.sh"
         run_here = sc.DASHBOARD_DIR / "run_slurm_monitor.sh"
@@ -545,8 +545,8 @@ def main() -> None:
         else:
             cmd_wrapped = cmd_painel
 
-        st.markdown("##### Snapshot painel tmux")
-        auto_snap = st.toggle("Atualizar automaticamente (~20 s)", value=True, key="dash_painel_snap_auto")
+        st.markdown("##### tmux Panel Snapshot")
+        auto_snap = st.toggle("Auto-refresh (~20 s)", value=True, key="dash_painel_snap_auto")
         skip_ac = not st.session_state.get("acct_ok", True)
 
         def _build_painel_snap() -> dict[str, tuple[bool, str]]:
@@ -561,30 +561,30 @@ def main() -> None:
             )
 
         def _render_snap_grid(snap: dict[str, tuple[bool, str]]) -> None:
-            st.caption(f"Actualizado: {datetime.now():%H:%M:%S}")
+            st.caption(f"Updated: {datetime.now():%H:%M:%S}")
             a, b = st.columns(2)
             with a:
                 with st.container(border=True):
-                    st.markdown("**1 · Fila (squeue)**")
-                    _ok, txt = snap["fila"]
+                    st.markdown("**1 - Queue (squeue)**")
+                    _ok, txt = snap["queue"]
                     st.code(txt[:14000], language="bash")
             with b:
                 with st.container(border=True):
-                    st.markdown("**2 · Logs (tail)**")
+                    st.markdown("**2 - Logs (tail)**")
                     _ok2, txt2 = snap["logs"]
                     st.code(txt2[:14000], language="text")
             c, d = st.columns(2)
             with c:
                 with st.container(border=True):
-                    st.markdown("**3 · GPU / contexto**")
+                    st.markdown("**3 - GPU / context**")
                     _ok3, txt3 = snap["gpu"]
                     st.code(txt3[:14000], language="text")
             with d:
                 with st.container(border=True):
-                    st.markdown("**4 · sacct**")
+                    st.markdown("**4 - sacct**")
                     ok4, txt4 = snap["sacct"]
                     if not ok4:
-                        st.warning("sacct falhou ou accounting offline.")
+                        st.warning("sacct failed or accounting is offline.")
                     st.code(txt4[:14000], language="text")
 
         if auto_snap:
@@ -595,27 +595,27 @@ def main() -> None:
 
             _painel_snap_fragment()
         else:
-            if st.button("Gerar snapshot agora", key="dash_painel_snap_btn"):
+            if st.button("Generate snapshot now", key="dash_painel_snap_btn"):
                 st.session_state["_painel_snap_once"] = _build_painel_snap()
             if st.session_state.get("_painel_snap_once"):
                 _render_snap_grid(st.session_state["_painel_snap_once"])
 
-        with st.expander("Painel tmux (terminal SSH)", expanded=False):
+        with st.expander("tmux panel (SSH terminal)", expanded=False):
             st.code(cmd_wrapped, language="bash")
             st.code(cmd_painel, language="bash")
 
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
-            st.number_input("Max linhas", 20, 400, 80, step=10, key="dash_proc_limit")
+            st.number_input("Max rows", 20, 400, 80, step=10, key="dash_proc_limit")
         with c2:
-            st.toggle("Auto-atualizar (4 s)", value=False, key="dash_proc_autorefresh")
+            st.toggle("Auto-refresh (4 s)", value=False, key="dash_proc_autorefresh")
         with c3:
-            st.text_input("Filtrar COMMAND", placeholder="ex.: python, slurm", key="dash_proc_filter")
+            st.text_input("Filter COMMAND", placeholder="ex.: python, slurm", key="dash_proc_filter")
 
         def _render_ps_table(label: str, stdout: str, ok: bool, err: str) -> None:
             st.markdown(f"###### {label}")
             if not ok:
-                st.error(err[:2000] if err else "ps falhou")
+                st.error(err[:2000] if err else "ps failed")
                 return
             lim = int(st.session_state.get("dash_proc_limit", 80))
             df_ps = sc.ps_aux_to_dataframe(stdout, max_rows=lim)
@@ -637,72 +637,72 @@ def main() -> None:
             @st.fragment(run_every=timedelta(seconds=4))
             def _proc_live():
                 pr = sc.ps_mem_snapshot()
-                _render_ps_table("ps aux — login", pr.stdout, pr.ok, pr.stderr)
+                _render_ps_table("ps aux - login", pr.stdout, pr.ok, pr.stderr)
 
             _proc_live()
         else:
             pr0 = sc.ps_mem_snapshot()
-            _render_ps_table("ps aux — login", pr0.stdout, pr0.ok, pr0.stderr)
+            _render_ps_table("ps aux - login", pr0.stdout, pr0.ok, pr0.stderr)
 
-        with st.expander("top -bn1 (texto bruto)"):
+        with st.expander("top -bn1 (raw text)"):
             tr = sc.top_snapshot()
             st.code(tr.stdout[:8000] if tr.ok else tr.stderr, language="text")
 
-        if st.checkbox("Tabela ps no no do job (srun --immediate)", value=False):
-            src_p = st.session_state.get("dash_job_source", "Da fila")
+        if st.checkbox("ps table on the job node (srun --immediate)", value=False):
+            src_p = st.session_state.get("dash_job_source", "From queue")
             pick_p = str(st.session_state.get("dash_job_pick", "") or "")
             man_p = str(st.session_state.get("dash_job_manual", "") or "")
             jx = sc.effective_job_id(src_p, pick_p, man_p)
             if not jx:
-                st.warning("Defina o job na aba **Job**.")
+                st.warning("Define the job in the **Job** tab.")
             else:
                 pr2 = sc.ps_via_srun(sc.job_base_id(jx))
                 if not pr2.ok:
                     show_slurm_error_friendly("srun ps", pr2.stderr, pr2.stdout)
                 else:
                     _render_ps_table(
-                        f"ps aux — job {sc.job_base_id(jx)}",
+                        f"ps aux - job {sc.job_base_id(jx)}",
                         pr2.stdout,
                         True,
                         "",
                     )
 
     with tabs[6]:
-        st.markdown("##### Comandos avancados Slurm")
+        st.markdown("##### Advanced SLURM Commands")
         
-        adv_tabs = st.tabs(["sprio (prioridade)", "Nos (nodes)", "Particoes"])
+        adv_tabs = st.tabs(["sprio (priority)", "Nodes", "Partitions"])
         
         with adv_tabs[0]:
-            st.markdown("###### sprio — prioridade na fila")
-            st.caption("Mostra por que alguns jobs pendentes passam à frente de outros.")
+            st.markdown("###### sprio - queue priority")
+            st.caption("Shows why some pending jobs are prioritized over others.")
             sp_c, sp_o, sp_e = slurm_sprio(u)
             if sp_c == 0 and sp_o.strip():
                 st.code(sp_o, language="text")
             else:
-                st.info("Sem jobs pendentes ou `sprio` indisponível.")
+                st.info("No pending jobs or `sprio` is unavailable.")
         
         with adv_tabs[1]:
             st.markdown("###### scontrol show nodes")
-            st.caption("Hardware completo de todos os nós do cluster (CPU, RAM, GPU, estado).")
-            if st.button("Carregar info de nós", key="load_nodes"):
+            st.caption("Full node hardware and state for the cluster (CPU, RAM, GPU, state).")
+            if st.button("Load node info", key="load_nodes"):
                 st.session_state["nodes_data"] = slurm_scontrol_nodes()
             if st.session_state.get("nodes_data"):
                 n_c, n_o, n_e = st.session_state["nodes_data"]
                 if n_c == 0:
-                    with st.expander("Ver detalhes completos", expanded=False):
+                    with st.expander("Show full details", expanded=False):
                         st.code(n_o[:50000], language="text")
                 else:
                     show_slurm_error_friendly("scontrol show nodes", n_e, n_o)
         
         with adv_tabs[2]:
             st.markdown("###### scontrol show partition")
-            st.caption("Limites de tempo, QoS, nós por partição — config real do cluster.")
-            if st.button("Carregar info de partições", key="load_parts"):
+            st.caption("Time limits, QoS, nodes per partition - real cluster configuration.")
+            if st.button("Load partition info", key="load_parts"):
                 st.session_state["parts_data"] = slurm_scontrol_partitions()
             if st.session_state.get("parts_data"):
                 p_c, p_o, p_e = st.session_state["parts_data"]
                 if p_c == 0:
-                    with st.expander("Ver detalhes completos", expanded=False):
+                    with st.expander("Show full details", expanded=False):
                         st.code(p_o[:50000], language="text")
                 else:
                     show_slurm_error_friendly("scontrol show partition", p_e, p_o)

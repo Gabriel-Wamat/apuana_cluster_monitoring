@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibilidade: use `streamlit run app.py`. Este ficheiro redirecciona para a app generica."""
+"""Compatibility alias: use `streamlit run app.py`; this redirects to the generic app."""
 from app import main
 
 if __name__ == "__main__":

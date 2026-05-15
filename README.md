@@ -1,148 +1,152 @@
-# Apuana Monitor 
+# Apuana Monitor
 
-Dashboard web e painel de terminal para monitorar o **Apuana/CIn-UFPE** via
-SLURM. O projeto tambem funciona como monitor generico de clusters SLURM com GPU
-NVIDIA opcional.
+Web dashboard and terminal panel for monitoring **Apuana/CIn-UFPE** through
+SLURM. The project also works as a generic SLURM cluster monitor with optional
+NVIDIA GPU visibility.
 
-O sistema foi desenhado para funcionar para **qualquer usuario do Apuana**. Ele
-usa `$USER`, `$HOME` e variaveis `SLURM_MONITOR_*`; nao depende do usuario
-`gwam` nem de caminhos absolutos de uma conta especifica.
+The system is designed to work for **any Apuana user**. It uses `$USER`, `$HOME`,
+and `SLURM_MONITOR_*` environment variables; it does not depend on the `gwam`
+account or on absolute paths from a specific home directory.
 
-## Requisitos
+## Requirements
 
-- Python 3.10+ (no nó de login)
-- `slurm-client` / comandos: `squeue`, `sinfo`, `sacct`, `scontrol`, `srun`
-- Opcional: `nvidia-smi`, `tmux`, `bash`
+- Python 3.10+ on a login node
+- SLURM commands: `squeue`, `sinfo`, `sacct`, `scontrol`, `srun`
+- Optional: `nvidia-smi`, `tmux`, `bash`
 
-## Uso rapido no Apuana
+## Quick Start On Apuana
 
-No seu computador local, entre em um no de login:
+From your local machine, connect to a login node:
 
 ```bash
-ssh <USUARIO>@slurm-client2.cin.ufpe.br
-# ou
-ssh <USUARIO>@slurm-client1.cin.ufpe.br
+ssh <USER>@slurm-client2.cin.ufpe.br
+# or
+ssh <USER>@slurm-client1.cin.ufpe.br
 ```
 
-No Apuana, acesse a pasta do projeto:
+On Apuana, enter the project directory:
 
 ```bash
 cd ~/monitoring/apuana
 ```
 
-Se a pasta ainda nao existir na sua conta, copie ou clone este repositorio para
-`~/monitoring` primeiro. O dashboard nao precisa ficar em uma pasta especifica,
-mas os exemplos abaixo assumem `~/monitoring`.
+If the directory does not exist in your account yet, copy or clone this
+repository to `~/monitoring` first. The dashboard does not require this exact
+path, but the examples below assume `~/monitoring`.
 
-Inicie o dashboard:
+Start the dashboard:
 
 ```bash
 chmod +x run_slurm_monitor.sh painel_slurm.sh tail_slurm_logs.sh watch_gpu_context.sh
 ./run_slurm_monitor.sh
 ```
 
-O script cria `.venv-monitor` dentro da pasta `apuana/` por padrao, instala as
-dependencias Python se necessario e abre o Streamlit em
-`http://127.0.0.1:8501`.
+The script creates `.venv-monitor` inside `apuana/` by default, installs Python
+dependencies when needed, and starts Streamlit on `http://127.0.0.1:8501`.
 
-Se outra pessoa ja estiver usando a porta `8501` no mesmo no de login, escolha
-outra porta:
+If another user is already using port `8501` on the same login node, choose a
+different port:
 
 ```bash
 SLURM_MONITOR_STREAMLIT_PORT=8502 ./run_slurm_monitor.sh
 ```
 
-Para manter o ambiente Python fora do repositorio:
+To keep the Python environment outside the repository:
 
 ```bash
 SLURM_MONITOR_VENV="$HOME/.cache/apuana-monitor-venv" ./run_slurm_monitor.sh
 ```
 
-Se a pasta `.venv-monitor` foi copiada de outro caminho/usuario e o Streamlit
-falhar com `bad interpreter`, remova a venv antiga ou aponte para uma nova:
+If `.venv-monitor` was copied from another path or user and Streamlit fails with
+`bad interpreter`, remove the stale venv or point to a fresh one:
 
 ```bash
 rm -rf .venv-monitor
 ./run_slurm_monitor.sh
 ```
 
-### Tunel SSH para abrir no navegador
+### SSH Tunnel For Browser Access
 
 ```bash
-ssh -N -L 8501:localhost:8501 <USUARIO>@slurm-client2.cin.ufpe.br
+ssh -N -L 8501:localhost:8501 <USER>@slurm-client2.cin.ufpe.br
 ```
 
-Abra no navegador local:
+Open this URL in your local browser:
 
 ```text
 http://localhost:8501
 ```
 
-Se voce iniciou o dashboard com outra porta, use a mesma porta no tunel e no
-navegador.
+If you started the dashboard with another port, use that same port in the tunnel
+and in the browser.
 
-### Painel tmux (4 painéis: fila, logs, GPU, sacct)
+### tmux Panel
 
 ```bash
 ./run_slurm_monitor.sh --painel
-# ou
+# or
 ./painel_slurm.sh
 ```
 
-### Validar o projeto no Apuana
+The tmux panel shows four views: user queue, logs, GPU/context, and `sacct`.
 
-Antes de implementar ou aceitar qualquer feature/refactor, rode:
+### Validate The Project On Apuana
+
+Before implementing or accepting any feature/refactor, run:
 
 ```bash
 cd ~/monitoring
 bash scripts/validate_monitoring.sh
 ```
 
-Esse comando valida sintaxe dos scripts, imports Python, self-tests do core,
-`squeue`, `sinfo` e o comportamento degradado esperado quando `sacct` estiver
-indisponivel.
+This command validates shell syntax, Python imports, core self-tests, `squeue`,
+`sinfo`, and the expected degraded behavior when `sacct` is unavailable.
 
-Regra do projeto: uma feature so entra em implementacao depois de ter criterio
-de aceite e comando de validacao definido. O comando canonico de validacao e
+Project rule: a feature only enters implementation after its acceptance criteria
+and validation command are defined. The canonical validation command is
 `bash scripts/validate_monitoring.sh`.
 
-## Variáveis de ambiente (prefixo `SLURM_MONITOR_`)
+## Environment Variables
 
+| Variable | Description |
+| --- | --- |
+| `SLURM_MONITOR_APP_TITLE` | Streamlit page title, default: `Slurm monitor` |
+| `SLURM_MONITOR_DEFAULT_LOG_OUT` | Initial stdout log path suggested in the UI |
+| `SLURM_MONITOR_LOG_SCAN_DIRS` | Extra directories for discovering `*.out` files, separated by `:` |
+| `SLURM_MONITOR_LOG_ALLOW_PREFIXES` | Allowed path prefixes for log reads, in addition to `$HOME`, repo root, `/scratch`, `/data`, and `/tmp` |
+| `SLURM_MONITOR_VENV` | Python virtualenv path |
+| `SLURM_MONITOR_STREAMLIT_PORT` | Streamlit port, default: `8501` |
+| `SLURM_MONITOR_SESSION` | tmux session name, default: `SlurmMonitor` |
+| `SLURM_MONITOR_LOG_OUT` / `SLURM_MONITOR_LOG_ERR` | Log files followed by the tmux panel |
+| `SLURM_MONITOR_SQUEUE_SEC` / `_GPU_SEC` / `_SACCT_SEC` / `_SACCT_LINES` | Panel refresh intervals and output size |
 
-| Variável                                                                | Descrição                                                                                                        |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `SLURM_MONITOR_APP_TITLE`                                               | Título da página Streamlit (defeito: *Slurm monitor*)                                                            |
-| `SLURM_MONITOR_DEFAULT_LOG_OUT`                                         | Caminho inicial sugerido para stdout do job na UI                                                                |
-| `SLURM_MONITOR_LOG_SCAN_DIRS`                                           | Pastas extra para descobrir ficheiros `*.out` (separadas por `:`)                                                |
-| `SLURM_MONITOR_LOG_ALLOW_PREFIXES`                                      | Prefixos de caminho permitidos para leitura de logs (além de `$HOME`, raiz do repo, `/scratch`, `/data`, `/tmp`) |
-| `SLURM_MONITOR_VENV`                                                    | Caminho do virtualenv Python                                                                                     |
-| `SLURM_MONITOR_STREAMLIT_PORT`                                          | Porta do Streamlit (defeito: 8501)                                                                               |
-| `SLURM_MONITOR_SESSION`                                                 | Nome da sessão tmux (padrão: `SlurmMonitor`)                                                                     |
-| `SLURM_MONITOR_LOG_OUT` / `SLURM_MONITOR_LOG_ERR`                       | Logs seguidos no painel tmux                                                                                     |
-| `SLURM_MONITOR_SQUEUE_SEC` / `_GPU_SEC` / `_SACCT_SEC` / `_SACCT_LINES` | Intervalos do painel                                                                                             |
+### Compatibility
 
+Legacy `APUANA_MONITOR_*` variables remain accepted with the same suffixes.
 
-### Compatibilidade
+The code lives in `monitoring/apuana/` for historical reasons. You can copy only
+that directory into another repository or rename the local folder; the logic does
+not depend on the name `apuana`.
 
-Variáveis `APUANA_MONITOR_`* continuam aceites (mesmos sufixos) para não partir instalações antigas.
+## Structure
 
-O codigo vive em `monitoring/apuana/` por historial deste repositorio; pode copiar **só** essa pasta para outro repo ou renomear a pasta localmente — a logica nao depende do nome "apuana".
+For a chronological explanation of how the code runs and how the files relate
+to each other, see [`docs/code-flow.md`](docs/code-flow.md).
 
-## Estrutura
+| File | Purpose |
+| --- | --- |
+| `app.py` | Main Streamlit application |
+| `slurm_core.py` | SLURM commands, parsers, and plots; testable with `python slurm_core.py` |
+| `run_slurm_monitor.sh` | Installs dependencies and starts Streamlit or the tmux panel |
+| `painel_slurm.sh` | tmux 2x2 layout |
+| `tail_slurm_logs.sh` | `tail` for `.out` / `.err` files |
+| `watch_gpu_context.sh` | GPU/context view through `sinfo` or an active allocation |
 
+`run_apuana_monitor.sh`, `painel_apuana.sh`, `tail_apuana_logs.sh`, and
+`dashboard_apuana.py` are compatibility aliases.
 
-| Ficheiro               | Função                                                               |
-| ---------------------- | -------------------------------------------------------------------- |
-| `app.py`               | Aplicação Streamlit principal                                        |
-| `slurm_core.py`        | Chamadas Slurm, parsers, gráficos (testável: `python slurm_core.py`) |
-| `run_slurm_monitor.sh` | Instala deps e inicia Streamlit ou painel                            |
-| `painel_slurm.sh`      | Layout tmux 2×2                                                      |
-| `tail_slurm_logs.sh`   | `tail` de `.out` / `.err`                                            |
-| `watch_gpu_context.sh` | Contexto GPU / `sinfo` no allocation                                 |
+## License And Contributions
 
-
-Ficheiros `run_apuana_monitor.sh`, `painel_apuana.sh`, `tail_apuana_logs.sh` e `dashboard_apuana.py` são **aliases** de compatibilidade.
-
-## Licença e contribuições
-
-Use e adapte ao vosso centro de computação: ajuste variáveis de ambiente, políticas de `srun` e caminhos de logs. Pull requests bem-vindos para manter o código agnóstico de site (sem URLs ou utilizadores hardcoded).
+Use and adapt this monitor for your computing center: adjust environment
+variables, `srun` policies, and log paths. Pull requests are welcome to keep the
+code site-agnostic, without hardcoded URLs or users.

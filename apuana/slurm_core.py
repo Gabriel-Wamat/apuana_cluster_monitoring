@@ -1,7 +1,7 @@
 """
-Logica Slurm, parsers e plots reutilizaveis (sem Streamlit).
+Reusable SLURM logic, parsers, and plots without Streamlit.
 
-Configuracao: variaveis SLURM_MONITOR_* (ver monitoring/README.md), com fallback APUANA_MONITOR_*.
+Configuration: SLURM_MONITOR_* variables, with APUANA_MONITOR_* fallback.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ DASHBOARD_DIR = Path(__file__).resolve().parent
 
 def infer_repo_root(dashboard: Path) -> Path:
     """
-    Raiz do projecto quando o dashboard vive dentro deste repositorio (MaSS13K, etc.).
-    Se o modulo for copiado sozinho, devolve `dashboard` (sem pastas 'evaluation').
+    Return the project root when the dashboard is embedded in a larger repo.
+    If this module is copied alone, return `dashboard`.
     """
     cand = dashboard.parent.parent
     if (cand / "mmsegmentation").is_dir() or (cand / "evaluation").is_dir():
@@ -81,7 +81,7 @@ class SubprocessCommandRunner:
             )
             return CmdResult(p.returncode, p.stdout or "", p.stderr or "")
         except FileNotFoundError:
-            return CmdResult(127, "", f"comando nao encontrado: {cmd[0]}")
+            return CmdResult(127, "", f"command not found: {cmd[0]}")
         except subprocess.TimeoutExpired:
             return CmdResult(124, "", "timeout")
 
@@ -108,9 +108,9 @@ def _user() -> str:
 
 def env_monitor(key: str, default: str = "") -> str:
     """
-    Le variaveis de ambiente genericas (open source) com fallback para nomes legados.
+    Read generic environment variables with legacy-name fallback.
 
-    Ordem: SLURM_MONITOR_<KEY>  ->  APUANA_MONITOR_<KEY>  ->  default
+    Order: SLURM_MONITOR_<KEY> -> APUANA_MONITOR_<KEY> -> default.
     """
     sl = os.environ.get(f"SLURM_MONITOR_{key}")
     if sl is not None and str(sl).strip() != "":
@@ -159,7 +159,7 @@ def allowed_log_roots() -> list[Path]:
 
 def validate_log_path(raw: str) -> tuple[Optional[Path], str]:
     if not raw.strip():
-        return None, "Caminho vazio."
+        return None, "Empty path."
     expanded = Path(raw).expanduser()
     try:
         resolved = expanded.resolve()
@@ -170,9 +170,9 @@ def validate_log_path(raw: str) -> tuple[Optional[Path], str]:
             return resolved, ""
     return (
         None,
-        "Caminho nao permitido. Use $HOME, raiz do repo, /scratch, /data, /tmp ou "
-        "defina SLURM_MONITOR_LOG_ALLOW_PREFIXES (ou legado APUANA_MONITOR_LOG_ALLOW_PREFIXES), "
-        "lista de prefixos separada por ':'.",
+        "Path is not allowed. Use $HOME, the repo root, /scratch, /data, /tmp, "
+        "or set SLURM_MONITOR_LOG_ALLOW_PREFIXES "
+        "(or legacy APUANA_MONITOR_LOG_ALLOW_PREFIXES) as a ':'-separated prefix list.",
     )
 
 
@@ -193,16 +193,16 @@ def human_slurm_failure(stderr: str, stdout: str) -> str:
     blob = (stderr + stdout).lower()
     if "connection refused" in blob or "slurm_persist" in blob:
         return (
-            "Falha de ligacao ao servico Slurm (ex.: accounting / slurmdbd). "
-            "Experimente outro no de login do cluster ou confirme SLURM_CONF / variaveis Slurm."
+            "Could not connect to a SLURM service, such as accounting/slurmdbd. "
+            "Try another login node or check SLURM_CONF and SLURM environment variables."
         )
     if "timeout" in blob or "timed out" in blob:
-        return "Tempo esgotado ao falar com o Slurm. O cluster pode estar sobrecarregado."
+        return "Timed out while talking to SLURM. The cluster may be overloaded."
     if "invalid job id" in blob or ("invalid" in blob and "job" in blob):
-        return "JobID invalido ou job ja expirou do controlador."
+        return "Invalid JobID, or the job has already expired from the controller."
     if "access" in blob or "permission" in blob:
-        return "Sem permissao para este comando ou informacao do job."
-    return "O comando Slurm devolveu erro. Veja detalhes tecnicos no expander abaixo."
+        return "Missing permission for this command or job information."
+    return "The SLURM command returned an error. See technical details below."
 
 
 def accounting_failed(stderr: str, stdout: str) -> bool:
@@ -222,7 +222,7 @@ def health_from_result(
         return HealthCheck(
             name,
             "degraded",
-            "timeout ao consultar componente",
+            "timeout while querying component",
             result.stderr or result.stdout,
         )
     if result.code == 127:
@@ -237,38 +237,38 @@ def health_from_result(
 
 def cluster_health_snapshot(user: str) -> list[HealthCheck]:
     checks: list[HealthCheck] = [
-        HealthCheck("Login", "ok", f"{os.uname().nodename} responde", env_block_compact()),
+        HealthCheck("Login", "ok", f"{os.uname().nodename} responds", env_block_compact()),
     ]
 
     sq = CmdResult(*run_squeue_user(user))
     checks.append(
         health_from_result(
-            "Fila",
+            "Queue",
             sq,
-            "squeue respondeu para o usuario",
-            "squeue nao encontrado neste no",
+            "squeue responded for the user",
+            "squeue was not found on this node",
         )
     )
 
     si = CmdResult(*run_sinfo())
     checks.append(
         health_from_result(
-            "Particoes",
+            "Partitions",
             si,
-            "sinfo respondeu",
-            "sinfo nao encontrado neste no",
+            "sinfo responded",
+            "sinfo was not found on this node",
         )
     )
 
     acct = CmdResult(*run_sacct_ping(user))
     if acct.code == 0 and not accounting_failed(acct.stderr, acct.stdout):
-        checks.append(HealthCheck("Accounting", "ok", "sacct respondeu", acct.stdout[:2000]))
+        checks.append(HealthCheck("Accounting", "ok", "sacct responded", acct.stdout[:2000]))
     elif accounting_failed(acct.stderr, acct.stdout):
         checks.append(
             HealthCheck(
                 "Accounting",
                 "degraded",
-                "sacct/slurmdbd indisponivel; historico deve degradar com aviso",
+                "sacct/slurmdbd unavailable; history should degrade with a warning",
                 (acct.stderr or acct.stdout)[:2000],
             )
         )
@@ -277,20 +277,20 @@ def cluster_health_snapshot(user: str) -> list[HealthCheck]:
             health_from_result(
                 "Accounting",
                 acct,
-                "sacct respondeu",
-                "sacct nao encontrado neste no",
+                "sacct responded",
+                "sacct was not found on this node",
             )
         )
 
     gpu = nvsmi_query()
     if gpu.ok and gpu.stdout.strip():
-        checks.append(HealthCheck("GPU login", "ok", "nvidia-smi respondeu", gpu.stdout[:2000]))
+        checks.append(HealthCheck("GPU login", "ok", "nvidia-smi responded", gpu.stdout[:2000]))
     else:
         checks.append(
             HealthCheck(
                 "GPU login",
                 "degraded",
-                "GPU nao visivel no login; usar srun quando houver job com GPU",
+                "GPU is not visible on the login node; use srun when there is a GPU job",
                 (gpu.stderr or gpu.stdout)[:2000],
             )
         )
@@ -368,7 +368,7 @@ def run_sacct_job(job_id: str, max_lines: int) -> tuple[int, str, str]:
 
 
 def run_sacct_ping(user: str) -> tuple[int, str, str]:
-    """Consulta minima ao accounting para health-check (TTL alto no dashboard)."""
+    """Minimal accounting query for the dashboard health check."""
     r = _run(
         ["sacct", "-u", user, "-n", "3", "-X", "--format=JobID,State", "--parsable2"],
         timeout=T_FAST,
@@ -384,8 +384,8 @@ def run_scontrol(job_id: str) -> tuple[int, str, str]:
 
 def run_sstat(job_id: str) -> tuple[int, str, str]:
     """
-    Estatisticas de job em execucao (sstat) — MaxRSS, AveCPU, etc.
-    So funciona com jobs RUNNING.
+    Runtime job statistics (sstat): MaxRSS, AveCPU, etc.
+    Only works with RUNNING jobs.
     """
     base = job_base_id(job_id)
     fmt = "JobID,MaxRSS,AveCPU,AvePages,AveVMSize"
@@ -395,8 +395,8 @@ def run_sstat(job_id: str) -> tuple[int, str, str]:
 
 def run_seff(job_id: str) -> tuple[int, str, str]:
     """
-    Eficiencia do job (seff) — % CPU e memoria usados.
-    Requer job completado ou em execucao.
+    Job efficiency (seff): CPU and memory usage percentages.
+    Requires a completed or running job.
     """
     base = job_base_id(job_id)
     r = _run(["seff", base], timeout=T_FAST)
@@ -404,19 +404,19 @@ def run_seff(job_id: str) -> tuple[int, str, str]:
 
 
 def run_sprio(user: str) -> tuple[int, str, str]:
-    """Prioridade dos jobs pendentes na fila."""
+    """Priority for pending jobs in the queue."""
     r = _run(["sprio", "-u", user], timeout=T_FAST)
     return r.code, r.stdout, r.stderr
 
 
 def run_scontrol_nodes() -> tuple[int, str, str]:
-    """Info completa de todos os nos do cluster."""
+    """Complete information for all cluster nodes."""
     r = _run(["scontrol", "show", "nodes"], timeout=10.0)
     return r.code, r.stdout, r.stderr
 
 
 def run_scontrol_partitions() -> tuple[int, str, str]:
-    """Info completa de todas as particoes (limites, QoS, etc)."""
+    """Complete information for all partitions: limits, QoS, etc."""
     r = _run(["scontrol", "show", "partition"], timeout=T_FAST)
     return r.code, r.stdout, r.stderr
 
@@ -444,7 +444,7 @@ def squeue_to_df(out: str) -> pd.DataFrame:
 
 def queue_running_pending(df: pd.DataFrame) -> tuple[int, int]:
     """
-    Conta jobs com ST (ou S) == R e == PD — alinhado ao mock React (KPIs da fila).
+    Count jobs with ST (or S) equal to R and PD.
     """
     if df is None or df.empty:
         return 0, 0
@@ -457,8 +457,8 @@ def queue_running_pending(df: pd.DataFrame) -> tuple[int, int]:
 
 def sacct_problem_job_count(df: pd.DataFrame) -> int:
     """
-    Jobs com estado problematico no sacct (exclui linhas .batch / .extern para nao duplicar).
-    Inspirado no cartao "Falhas" do mock React — aqui contam-se todos os estados de erro na janela.
+    Jobs with problematic sacct states.
+    Excludes .batch and .extern rows to avoid duplicates.
     """
     if df is None or df.empty:
         return 0
@@ -557,40 +557,40 @@ def discover_log_candidates(limit: int = 40) -> list[Path]:
 
 def find_best_log_fallback(requested: str, extension: str = ".out") -> Optional[Path]:
     """
-    Se o log pedido nao existir, procura o mais recente disponivel.
+    If the requested log does not exist, return the newest available fallback.
     
-    Busca inteligente em:
-    - $HOME e subpastas comuns (logs, slurm-logs, output, out, jobs)
-    - Raiz do repo e evaluation/logs
-    - Pastas configuradas em SLURM_MONITOR_LOG_SCAN_DIRS
+    Search locations:
+    - $HOME and common subdirectories: logs, slurm-logs, output, out, jobs
+    - Repo root and evaluation/logs
+    - Directories configured in SLURM_MONITOR_LOG_SCAN_DIRS
     
     Args:
-        requested: caminho pedido (pode nao existir)
-        extension: extensao desejada (.out ou .err)
+        requested: requested path, which may not exist
+        extension: desired extension, such as .out or .err
     
     Returns:
-        Path do melhor ficheiro ou None se nenhum existir
+        Best matching file path, or None if no candidate exists.
     """
     req_path = Path(requested).expanduser()
     if req_path.exists() and req_path.is_file():
         return req_path
     
-    # Dirs base
+    # Base directories.
     dirs: list[Path] = [Path.home(), REPO_ROOT]
     
-    # Subpastas comuns de $HOME onde logs costumam ficar
+    # Common $HOME subdirectories where logs are often stored.
     home = Path.home()
     for subdir in ["logs", "slurm-logs", "slurm_logs", "output", "out", "jobs", "slurm", ".slurm"]:
         candidate = home / subdir
         if candidate.is_dir():
             dirs.append(candidate)
     
-    # evaluation/logs (comum em repos de ML)
+    # evaluation/logs is common in ML repositories.
     ev_logs = REPO_ROOT / "evaluation" / "logs"
     if ev_logs.is_dir():
         dirs.append(ev_logs)
     
-    # Dirs configurados pelo utilizador
+    # User-configured directories.
     for raw in env_monitor("LOG_SCAN_DIRS", "").split(":"):
         raw = raw.strip()
         if raw:
@@ -604,7 +604,7 @@ def find_best_log_fallback(requested: str, extension: str = ".out") -> Optional[
     for d in dirs:
         if not d.is_dir():
             continue
-        # Procurar na pasta e uma nivel abaixo (para slurm-123456.out dentro de jobs/)
+        # Search the directory and one level below it.
         for p in d.glob(pattern):
             if p.is_file():
                 candidates.append(p)
@@ -615,7 +615,7 @@ def find_best_log_fallback(requested: str, extension: str = ".out") -> Optional[
     if not candidates:
         return None
     
-    # Retornar o mais recente
+    # Return the newest candidate.
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
 
@@ -698,7 +698,7 @@ def run_tail(path: str, n_lines: int) -> CmdResult:
 
 
 def gpu_context_snapshot_text(user: str) -> str:
-    """Equivalente a uma execucao de watch_gpu_context.sh (sem watch), com srun --immediate=1."""
+    """One-shot equivalent of watch_gpu_context.sh with srun --immediate=1."""
     lines: list[str] = []
     jid = ""
     r = _run(["squeue", "-u", user, "-h", "-t", "R,CG", "-o", "%i"], timeout=T_FAST)
@@ -708,21 +708,21 @@ def gpu_context_snapshot_text(user: str) -> str:
         r2 = _run(["squeue", "-u", user, "-h", "-t", "PD", "-o", "%i"], timeout=T_FAST)
         if r2.ok and r2.stdout.strip():
             jid = r2.stdout.strip().splitlines()[0].strip()
-    lines.append(f"Usuario={user} job_destacado={jid or '<nenhum>'}")
+    lines.append(f"User={user} highlighted_job={jid or '<none>'}")
     lines.append("-" * 60)
     if jid:
         base = job_base_id(jid)
         sc_r = _run(["scontrol", "show", "job", base], timeout=T_FAST)
-        lines.append("scontrol show job (inicio):")
+        lines.append("scontrol show job (start):")
         lines.append((sc_r.stdout or sc_r.stderr)[:8000])
         lines.append("-" * 60)
         lines.append("nvidia-smi (srun --immediate=1):")
         nv = nvsmi_query_srun(base)
-        lines.append((nv.stdout or nv.stderr or "(sem saida)")[:12000])
+        lines.append((nv.stdout or nv.stderr or "(no output)")[:12000])
     else:
         si = _run(["sinfo", "-s"], timeout=T_FAST)
         lines.append("sinfo -s:")
-        lines.append((si.stdout or si.stderr or "(sem sinfo)")[:8000])
+        lines.append((si.stdout or si.stderr or "(no sinfo output)")[:8000])
     return "\n".join(lines)
 
 
@@ -736,13 +736,13 @@ def painel_like_snapshot(
     skip_sacct: bool,
 ) -> dict[str, tuple[bool, str]]:
     """
-    Um passe pelos 4 quadrantes do painel tmux (fila, logs, GPU, sacct), sem tmux nem TTY.
-    Valor por chave: (ok, texto_para_mostrar).
+    One pass through the four tmux-panel quadrants: queue, logs, GPU, sacct.
+    Values are keyed as (ok, display_text).
     """
     out: dict[str, tuple[bool, str]] = {}
     c, o, e = run_squeue_user(user)
-    text_fila = (o or "") + (("\n" + e) if e else "")
-    out["fila"] = (c == 0, text_fila if text_fila.strip() else "(vazio)")
+    queue_text = (o or "") + (("\n" + e) if e else "")
+    out["queue"] = (c == 0, queue_text if queue_text.strip() else "(empty)")
 
     log_chunks: list[str] = []
     for label, raw in (("stdout", log_out_raw), ("stderr", log_err_raw)):
@@ -751,11 +751,11 @@ def painel_like_snapshot(
             log_chunks.append(f"=== {label} ===\n{msg}")
             continue
         if not p.is_file():
-            log_chunks.append(f"=== {label} {p} ===\n(ficheiro ainda nao existe)")
+            log_chunks.append(f"=== {label} {p} ===\n(file does not exist yet)")
             continue
         t = run_tail(str(p), tail_n)
         log_chunks.append(
-            f"=== {label} {p} ===\n" + (t.stdout if t.ok else t.stderr or "(erro tail)")
+            f"=== {label} {p} ===\n" + (t.stdout if t.ok else t.stderr or "(tail error)")
         )
     out["logs"] = (True, "\n\n".join(log_chunks))
 
@@ -764,8 +764,8 @@ def painel_like_snapshot(
     if skip_sacct:
         out["sacct"] = (
             True,
-            "(sacct omitido: accounting indisponivel neste no de login.)\n"
-            "Use outro no de login ou veja o aviso no topo da pagina.",
+            "(sacct skipped: accounting is unavailable on this login node.)\n"
+            "Use another login node or see the warning at the top of the page.",
         )
     else:
         cs, os_, es = run_sacct_user(user, sacct_hours, sacct_n)
@@ -773,7 +773,7 @@ def painel_like_snapshot(
         body = (os_ or "") if ok else ""
         if es:
             body = body + ("\n--- stderr ---\n" + es if body else es)
-        out["sacct"] = (ok, body if body.strip() else "(vazio ou erro — ver stderr no expander de erro se houver)")
+        out["sacct"] = (ok, body if body.strip() else "(empty or error; see stderr details if present)")
     return out
 
 
@@ -787,9 +787,9 @@ def ps_via_srun(job_base: str) -> CmdResult:
 def env_block_compact() -> str:
     return (
         f"Python: {sys.executable}\n"
-        f"Versao: {sys.version.splitlines()[0]}\n"
-        f"Venv: {os.environ.get('VIRTUAL_ENV', '—')}\n"
-        f"Conda: {os.environ.get('CONDA_PREFIX', '—')}\n"
+        f"Version: {sys.version.splitlines()[0]}\n"
+        f"Venv: {os.environ.get('VIRTUAL_ENV', '-')}\n"
+        f"Conda: {os.environ.get('CONDA_PREFIX', '-')}\n"
         f"Host: {os.uname().nodename}\n"
         f"Dashboard: {DASHBOARD_DIR}\n"
         f"Repo: {REPO_ROOT}"
@@ -804,7 +804,7 @@ def build_diag_text(sacct_hint: str) -> str:
         f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '')}",
     ]
     if sacct_hint:
-        full.extend(["", "--- ultimo stderr sacct ---", sacct_hint[:4000]])
+        full.extend(["", "--- last sacct stderr ---", sacct_hint[:4000]])
     return "\n".join(full)
 
 
@@ -887,7 +887,7 @@ def plot_partition_idle(sinfo_df: pd.DataFrame, title: str):
 
 
 def plot_partition_heatmap(sinfo_df: pd.DataFrame, title: str):
-    """Heatmap 1 x N (particoes) — plano: visual opcional com poucas linhas."""
+    """1 x N partition heatmap for small partition tables."""
     parts, idle_frac = partition_idle_series(sinfo_df)
     if len(parts) < 2 or len(parts) > 20:
         return None
@@ -974,11 +974,11 @@ user      9999 10.5  2.0 200000 50000 pts/0   Sl+  10:00   0:10 python train.py 
     del os.environ["APUANA_MONITOR__TESTKEY"]
     assert env_monitor("_TESTKEY", "d") == "d"
 
-    ok_h = health_from_result("Fila", CmdResult(0, "jobs", ""), "ok", "missing")
+    ok_h = health_from_result("Queue", CmdResult(0, "jobs", ""), "ok", "missing")
     assert ok_h.status == "ok" and ok_h.summary == "ok"
-    timeout_h = health_from_result("Fila", CmdResult(124, "", "timeout"), "ok", "missing")
+    timeout_h = health_from_result("Queue", CmdResult(124, "", "timeout"), "ok", "missing")
     assert timeout_h.status == "degraded"
-    missing_h = health_from_result("Fila", CmdResult(127, "", "comando nao encontrado"), "ok", "missing")
+    missing_h = health_from_result("Queue", CmdResult(127, "", "command not found"), "ok", "missing")
     assert missing_h.status == "unavailable"
 
 

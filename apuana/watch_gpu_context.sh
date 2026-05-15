@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roda sob `watch`: resume fila, job e tentativa de nvidia-smi no allocation.
+# Runs under `watch`: summarizes queue, job, and nvidia-smi attempts in the allocation.
 set -u
 u="${USER:-$(whoami)}"
 jid="$(squeue -u "$u" -h -t R,CG -o "%i" 2>/dev/null | head -n1)"
@@ -8,14 +8,14 @@ if [[ -z "$jid" ]]; then
 fi
 clear
 date
-echo "Usuario=$u job_destacado=${jid:-<nenhum>}"
+echo "User=$u highlighted_job=${jid:-<none>}"
 echo "----------------------------------------------------------------"
 if [[ -n "$jid" ]]; then
-  echo "scontrol show job $jid (inicio):"
+  echo "scontrol show job $jid (start):"
   scontrol show job "$jid" 2>/dev/null | head -n 35 || true
   echo "----------------------------------------------------------------"
-  echo "nvidia-smi via srun --immediate=1 --jobid=$jid (pode falhar no login):"
-  srun --immediate=1 --jobid="$jid" nvidia-smi 2>&1 || echo "(falhou — normal se politica do cluster nao permitir)"
+  echo "nvidia-smi via srun --immediate=1 --jobid=$jid (may fail on login nodes):"
+  srun --immediate=1 --jobid="$jid" nvidia-smi 2>&1 || echo "(failed; normal when cluster policy does not allow it)"
 else
   sinfo -s 2>/dev/null || sinfo || true
 fi

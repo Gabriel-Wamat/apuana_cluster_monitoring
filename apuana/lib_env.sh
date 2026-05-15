@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Variaveis partilhadas: preferir SLURM_MONITOR_* (open source); APUANA_MONITOR_* mantem compatibilidade.
-# O script chamador deve definir SCRIPT_DIR antes de: source "${SCRIPT_DIR}/lib_env.sh"
+# Shared variables: prefer SLURM_MONITOR_*; APUANA_MONITOR_* remains supported.
+# The caller must define SCRIPT_DIR before sourcing this file.
 
 : "${SCRIPT_DIR:?define SCRIPT_DIR before sourcing lib_env.sh}"
 
