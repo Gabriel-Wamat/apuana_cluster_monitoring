@@ -1,4 +1,4 @@
-# Apuana Monitor
+# HPC - Apuana Monitor
 
 Web dashboard and terminal panel for monitoring **Apuana/CIn-UFPE** through
 SLURM. The project also works as a generic SLURM cluster monitor with optional
