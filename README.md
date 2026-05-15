@@ -1,6 +1,12 @@
-# Slurm monitor (Streamlit + tmux)
+# Apuana Slurm Monitor (Streamlit + tmux)
 
-Dashboard web e painel de terminal para **clusters Slurm** com GPU NVIDIA opcional. Pensado para correr num **nó de login** (onde existem `squeue`, `sacct`, `srun`, etc.).
+Dashboard web e painel de terminal para monitorar o **Apuana/CIn-UFPE** via
+SLURM. O projeto tambem funciona como monitor generico de clusters SLURM com GPU
+NVIDIA opcional.
+
+O sistema foi desenhado para funcionar para **qualquer usuario do Apuana**. Ele
+usa `$USER`, `$HOME` e variaveis `SLURM_MONITOR_*`; nao depende do usuario
+`gwam` nem de caminhos absolutos de uma conta especifica.
 
 ## Requisitos
 
@@ -8,30 +14,72 @@ Dashboard web e painel de terminal para **clusters Slurm** com GPU NVIDIA opcion
 - `slurm-client` / comandos: `squeue`, `sinfo`, `sacct`, `scontrol`, `srun`
 - Opcional: `nvidia-smi`, `tmux`, `bash`
 
-## Arranque rápido
+## Uso rapido no Apuana
+
+No seu computador local, entre em um no de login:
 
 ```bash
-cd monitoring/apuana
+ssh <USUARIO>@slurm-client2.cin.ufpe.br
+# ou
+ssh <USUARIO>@slurm-client1.cin.ufpe.br
+```
+
+No Apuana, acesse a pasta do projeto:
+
+```bash
+cd ~/monitoring/apuana
+```
+
+Se a pasta ainda nao existir na sua conta, copie ou clone este repositorio para
+`~/monitoring` primeiro. O dashboard nao precisa ficar em uma pasta especifica,
+mas os exemplos abaixo assumem `~/monitoring`.
+
+Inicie o dashboard:
+
+```bash
 chmod +x run_slurm_monitor.sh painel_slurm.sh tail_slurm_logs.sh watch_gpu_context.sh
 ./run_slurm_monitor.sh
 ```
 
-Ou, a partir da raiz de um clone deste repositório:
+O script cria `.venv-monitor` dentro da pasta `apuana/` por padrao, instala as
+dependencias Python se necessario e abre o Streamlit em
+`http://127.0.0.1:8501`.
+
+Se outra pessoa ja estiver usando a porta `8501` no mesmo no de login, escolha
+outra porta:
 
 ```bash
-chmod +x run_slurm_monitor.sh
+SLURM_MONITOR_STREAMLIT_PORT=8502 ./run_slurm_monitor.sh
+```
+
+Para manter o ambiente Python fora do repositorio:
+
+```bash
+SLURM_MONITOR_VENV="$HOME/.cache/apuana-monitor-venv" ./run_slurm_monitor.sh
+```
+
+Se a pasta `.venv-monitor` foi copiada de outro caminho/usuario e o Streamlit
+falhar com `bad interpreter`, remova a venv antiga ou aponte para uma nova:
+
+```bash
+rm -rf .venv-monitor
 ./run_slurm_monitor.sh
 ```
 
-O script cria `.venv-monitor` (ou o caminho em `SLURM_MONITOR_VENV`) e abre o Streamlit em `http://127.0.0.1:8501` por defeito.
-
-### Túnel SSH (desde o portátil)
+### Tunel SSH para abrir no navegador
 
 ```bash
-ssh -N -L 8501:localhost:8501 USER@LOGIN_NODE
+ssh -N -L 8501:localhost:8501 <USUARIO>@slurm-client2.cin.ufpe.br
 ```
 
-Abra no browser: `http://localhost:8501`.
+Abra no navegador local:
+
+```text
+http://localhost:8501
+```
+
+Se voce iniciou o dashboard com outra porta, use a mesma porta no tunel e no
+navegador.
 
 ### Painel tmux (4 painéis: fila, logs, GPU, sacct)
 
@@ -40,6 +88,23 @@ Abra no browser: `http://localhost:8501`.
 # ou
 ./painel_slurm.sh
 ```
+
+### Validar o projeto no Apuana
+
+Antes de implementar ou aceitar qualquer feature/refactor, rode:
+
+```bash
+cd ~/monitoring
+bash scripts/validate_monitoring.sh
+```
+
+Esse comando valida sintaxe dos scripts, imports Python, self-tests do core,
+`squeue`, `sinfo` e o comportamento degradado esperado quando `sacct` estiver
+indisponivel.
+
+Regra do projeto: uma feature so entra em implementacao depois de ter criterio
+de aceite e comando de validacao definido. O comando canonico de validacao e
+`bash scripts/validate_monitoring.sh`.
 
 ## Variáveis de ambiente (prefixo `SLURM_MONITOR_`)
 

@@ -89,6 +89,11 @@ def slurm_scontrol_partitions() -> tuple[int, str, str]:
     return sc.run_scontrol_partitions()
 
 
+@st.cache_data(ttl=20, show_spinner=False)
+def slurm_cluster_health(user: str) -> list[sc.HealthCheck]:
+    return sc.cluster_health_snapshot(user)
+
+
 def main() -> None:
     _title = sc.env_monitor("APP_TITLE", "Monitor - Apuana")
     st.set_page_config(page_title=_title, layout="wide", initial_sidebar_state="expanded")
@@ -191,6 +196,22 @@ def main() -> None:
     tabs = st.tabs(["Visao geral", "Job", "GPU", "Logs", "Cluster", "Processos", "Avancado"])
 
     with tabs[0]:
+        health = slurm_cluster_health(u)
+        st.markdown("##### Saude operacional")
+        health_cols = st.columns(min(5, max(1, len(health))))
+        badge = {"ok": "OK", "degraded": "DEGRADED", "unavailable": "UNAVAILABLE"}
+        for i, item in enumerate(health):
+            with health_cols[i % len(health_cols)]:
+                with st.container(border=True):
+                    st.markdown(f"**{item.name}**")
+                    st.caption(badge.get(item.status, item.status.upper()))
+                    st.write(item.summary)
+                    if item.detail:
+                        with st.expander("Detalhe", expanded=False):
+                            st.code(item.detail[:2000], language="text")
+
+        st.divider()
+
         # KPIs (inspiracao: cartoes da "Visao geral" React — dados reais, uma unica chamada sacct)
         dfb_hist = pd.DataFrame()
         sacct_hist_ok = False

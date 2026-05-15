@@ -60,15 +60,14 @@ ensure_python_venv() {
     python3 -m venv "$MONITOR_VENV"
   fi
   local py="${MONITOR_VENV}/bin/python"
-  local pip="${MONITOR_VENV}/bin/pip"
   if [[ ! -x "$py" ]]; then
     log "ERRO: venv invalido (sem bin/python)."
     exit 1
   fi
   if ! "$py" -c "import streamlit, pandas, numpy, matplotlib, seaborn" 2>/dev/null; then
     log "Instalando dependencias do dashboard..."
-    "$pip" install --upgrade pip setuptools wheel -q
-    "$pip" install -r "$REQ"
+    "$py" -m pip install --upgrade pip setuptools wheel -q
+    "$py" -m pip install -r "$REQ"
   else
     log "Dependencias Python OK."
   fi
@@ -82,7 +81,7 @@ start_streamlit_bg() {
   local port="$1"
   local logf="${SCRIPT_DIR}/streamlit-slurm-monitor.log"
   local pidf="${SCRIPT_DIR}/streamlit-slurm-monitor.pid"
-  local bin="${MONITOR_VENV}/bin/streamlit"
+  local py="${MONITOR_VENV}/bin/python"
 
   if [[ -f "$pidf" ]]; then
     local old
@@ -96,7 +95,7 @@ start_streamlit_bg() {
   log "Iniciando Streamlit na porta $port (127.0.0.1)..."
   (
     cd "$SCRIPT_DIR" || exit 1
-    nohup "$bin" run "$DASH" \
+    nohup "$py" -m streamlit run "$DASH" \
       --server.port "$port" \
       --server.address 127.0.0.1 \
       --browser.gatherUsageStats false \
@@ -119,7 +118,7 @@ run_streamlit_fg() {
   local port="$1"
   log "Iniciando Streamlit em primeiro plano (Ctrl+C encerra)..."
   cd "$SCRIPT_DIR"
-  exec "${MONITOR_VENV}/bin/streamlit" run "$DASH" \
+  exec "${MONITOR_VENV}/bin/python" -m streamlit run "$DASH" \
     --server.port "$port" \
     --server.address 127.0.0.1 \
     --browser.gatherUsageStats false

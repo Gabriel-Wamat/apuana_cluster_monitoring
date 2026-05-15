@@ -14,7 +14,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Protocol
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -54,20 +54,52 @@ class CmdResult:
         return self.code == 0
 
 
+@dataclass(frozen=True)
+class HealthCheck:
+    name: str
+    status: str
+    summary: str
+    detail: str = ""
+
+
+class CommandRunner(Protocol):
+    def run(self, cmd: list[str], timeout: float = T_FAST) -> CmdResult:
+        ...
+
+
+class SubprocessCommandRunner:
+    """Small boundary around subprocess so Slurm wrappers stay testable."""
+
+    def run(self, cmd: list[str], timeout: float = T_FAST) -> CmdResult:
+        try:
+            p = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            return CmdResult(p.returncode, p.stdout or "", p.stderr or "")
+        except FileNotFoundError:
+            return CmdResult(127, "", f"comando nao encontrado: {cmd[0]}")
+        except subprocess.TimeoutExpired:
+            return CmdResult(124, "", "timeout")
+
+
+DEFAULT_RUNNER = SubprocessCommandRunner()
+
+
+def run_command(
+    cmd: list[str],
+    timeout: float = T_FAST,
+    runner: Optional[CommandRunner] = None,
+) -> CmdResult:
+    active_runner = runner or DEFAULT_RUNNER
+    return active_runner.run(cmd, timeout=timeout)
+
+
 def _run(cmd: list[str], timeout: float = T_FAST) -> CmdResult:
-    try:
-        p = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        return CmdResult(p.returncode, p.stdout or "", p.stderr or "")
-    except FileNotFoundError:
-        return CmdResult(127, "", f"comando nao encontrado: {cmd[0]}")
-    except subprocess.TimeoutExpired:
-        return CmdResult(124, "", "timeout")
+    return run_command(cmd, timeout=timeout)
 
 
 def _user() -> str:
@@ -176,6 +208,93 @@ def human_slurm_failure(stderr: str, stdout: str) -> str:
 def accounting_failed(stderr: str, stdout: str) -> bool:
     blob = (stderr + stdout).lower()
     return "connection refused" in blob or "slurm_persist" in blob
+
+
+def health_from_result(
+    name: str,
+    result: CmdResult,
+    ok_summary: str,
+    unavailable_summary: str,
+) -> HealthCheck:
+    if result.code == 0:
+        return HealthCheck(name, "ok", ok_summary, (result.stdout or result.stderr)[:2000])
+    if result.code == 124:
+        return HealthCheck(
+            name,
+            "degraded",
+            "timeout ao consultar componente",
+            result.stderr or result.stdout,
+        )
+    if result.code == 127:
+        return HealthCheck(name, "unavailable", unavailable_summary, result.stderr)
+    return HealthCheck(
+        name,
+        "degraded",
+        human_slurm_failure(result.stderr, result.stdout),
+        (result.stderr or result.stdout)[:2000],
+    )
+
+
+def cluster_health_snapshot(user: str) -> list[HealthCheck]:
+    checks: list[HealthCheck] = [
+        HealthCheck("Login", "ok", f"{os.uname().nodename} responde", env_block_compact()),
+    ]
+
+    sq = CmdResult(*run_squeue_user(user))
+    checks.append(
+        health_from_result(
+            "Fila",
+            sq,
+            "squeue respondeu para o usuario",
+            "squeue nao encontrado neste no",
+        )
+    )
+
+    si = CmdResult(*run_sinfo())
+    checks.append(
+        health_from_result(
+            "Particoes",
+            si,
+            "sinfo respondeu",
+            "sinfo nao encontrado neste no",
+        )
+    )
+
+    acct = CmdResult(*run_sacct_ping(user))
+    if acct.code == 0 and not accounting_failed(acct.stderr, acct.stdout):
+        checks.append(HealthCheck("Accounting", "ok", "sacct respondeu", acct.stdout[:2000]))
+    elif accounting_failed(acct.stderr, acct.stdout):
+        checks.append(
+            HealthCheck(
+                "Accounting",
+                "degraded",
+                "sacct/slurmdbd indisponivel; historico deve degradar com aviso",
+                (acct.stderr or acct.stdout)[:2000],
+            )
+        )
+    else:
+        checks.append(
+            health_from_result(
+                "Accounting",
+                acct,
+                "sacct respondeu",
+                "sacct nao encontrado neste no",
+            )
+        )
+
+    gpu = nvsmi_query()
+    if gpu.ok and gpu.stdout.strip():
+        checks.append(HealthCheck("GPU login", "ok", "nvidia-smi respondeu", gpu.stdout[:2000]))
+    else:
+        checks.append(
+            HealthCheck(
+                "GPU login",
+                "degraded",
+                "GPU nao visivel no login; usar srun quando houver job com GPU",
+                (gpu.stderr or gpu.stdout)[:2000],
+            )
+        )
+    return checks
 
 
 def run_squeue_user(user: str) -> tuple[int, str, str]:
@@ -796,6 +915,19 @@ def plot_partition_heatmap(sinfo_df: pd.DataFrame, title: str):
 
 
 def _self_tests() -> None:
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.calls: list[tuple[list[str], float]] = []
+
+        def run(self, cmd: list[str], timeout: float = T_FAST) -> CmdResult:
+            self.calls.append((cmd, timeout))
+            return CmdResult(0, "ok", "")
+
+    fake = FakeRunner()
+    rc = run_command(["squeue", "-u", "u1"], timeout=1.25, runner=fake)
+    assert rc.ok and rc.stdout == "ok"
+    assert fake.calls == [(["squeue", "-u", "u1"], 1.25)]
+
     ps_out = """USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
 root         1  0.0  0.0 123456 7890 ?        Ss   Apr01   0:01 /sbin/init
 user      9999 10.5  2.0 200000 50000 pts/0   Sl+  10:00   0:10 python train.py --epochs 1
@@ -841,6 +973,13 @@ user      9999 10.5  2.0 200000 50000 pts/0   Sl+  10:00   0:10 python train.py 
     assert env_monitor("_TESTKEY", "d") == "legacy"
     del os.environ["APUANA_MONITOR__TESTKEY"]
     assert env_monitor("_TESTKEY", "d") == "d"
+
+    ok_h = health_from_result("Fila", CmdResult(0, "jobs", ""), "ok", "missing")
+    assert ok_h.status == "ok" and ok_h.summary == "ok"
+    timeout_h = health_from_result("Fila", CmdResult(124, "", "timeout"), "ok", "missing")
+    assert timeout_h.status == "degraded"
+    missing_h = health_from_result("Fila", CmdResult(127, "", "comando nao encontrado"), "ok", "missing")
+    assert missing_h.status == "unavailable"
 
 
 if __name__ == "__main__":
