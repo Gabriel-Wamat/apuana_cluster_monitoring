@@ -1,4 +1,4 @@
-# Apuana Slurm Monitor (Streamlit + tmux)
+# Apuana Monitor 
 
 Dashboard web e painel de terminal para monitorar o **Apuana/CIn-UFPE** via
 SLURM. O projeto tambem funciona como monitor generico de clusters SLURM com GPU
