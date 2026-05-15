@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apuana Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles/app.css">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sb">
+  <div class="sb-logo">A</div>
+  <nav class="sb-nav">
+    <button class="nb active" onclick="setView('overview')" title="Overview">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
+    </button>
+    <button class="nb" onclick="setView('jobs')" title="Jobs">
+      <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+    </button>
+    <button class="nb" onclick="setView('gpu')" title="GPU">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    </button>
+    <button class="nb" onclick="setView('logs')" title="Logs">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    </button>
+    <button class="nb" onclick="setView('transfer')" title="Transfer">
+      <svg viewBox="0 0 24 24"><path d="M17 3h4v4"/><path d="M21 3l-7 7"/><path d="M7 21H3v-4"/><path d="M3 21l7-7"/><path d="M14 3H8a2 2 0 0 0-2 2v6"/><path d="M10 21h6a2 2 0 0 0 2-2v-6"/></svg>
+    </button>
+    <button class="nb" onclick="setView('cluster')" title="Cluster">
+      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+    </button>
+  </nav>
+  <div class="sb-avatar" id="sb-avatar">?</div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="hdr-left">
+      <h1>Apuana Monitor</h1>
+      <p>SLURM cluster - CIn UFPE</p>
+    </div>
+    <div class="hdr-right">
+      <span class="chip" id="chip-node">-</span>
+      <span class="chip chip-live">Live - 5s</span>
+      <button class="btn-refresh" onclick="poll()">&#8635; Refresh</button>
+    </div>
+  </div>
+
+  <!-- VIEW: OVERVIEW -->
+  <div class="view active" id="view-overview">
+    <div class="ov-grid">
+      <div>
+        <div class="sec">
+          <div class="sec-title">Global queue - <span id="q-global-count" style="color:var(--t3);font-size:10px;text-transform:none;letter-spacing:0"></span></div>
+          <div id="q-global"></div>
+        </div>
+        <div class="kpi-grid" id="kpis"></div>
+        <div class="sec">
+          <div class="sec-title">Users in queue</div>
+          <div id="users-table"></div>
+        </div>
+        <div class="sec">
+          <div class="filter-row">
+            <label>Filter by user</label>
+            <input id="user-in" type="text" placeholder="gwam">
+          </div>
+          <div class="sec-title">User queue - <span id="user-lbl" style="color:var(--p)"></span></div>
+          <div id="q-user"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Cluster health</div>
+          <div id="health-list"></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Storage</div>
+          <div id="disks"></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Memory - Load</div>
+          <div id="sys-mem"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Logged into this login node</div>
+          <div id="logins-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW: JOBS -->
+  <div class="view" id="view-jobs">
+    <div class="sec-title" style="margin-bottom:12px">Inspect job</div>
+    <div class="job-row">
+      <input id="job-id-in" type="text" placeholder="Job ID (ex: 12345)" style="width:200px">
+      <select id="job-queue-sel" style="width:180px"><option value="">From queue</option></select>
+      <button onclick="fetchJob()">Inspect</button>
+    </div>
+    <div class="card">
+      <div class="card-title">scontrol show job</div>
+      <div class="code-block" id="job-output">Enter a Job ID and click Inspect.</div>
+    </div>
+  </div>
+
+  <!-- VIEW: GPU -->
+  <div class="view" id="view-gpu">
+    <div class="sec-title" style="margin-bottom:12px">GPU - login node</div>
+    <div class="gpu-grid" id="gpu-cards"></div>
+    <p class="empty" id="gpu-empty" style="display:none">No visible GPU on the login node.</p>
+  </div>
+
+  <!-- VIEW: LOGS -->
+  <div class="view" id="view-logs">
+    <div class="sec-title" style="margin-bottom:16px">Logs de job</div>
+    <div class="logs-grid">
+      <div class="log-pane">
+        <label>Stdout path</label>
+        <input id="log-out-path" type="text" placeholder="/home/user/slurm-12345.out">
+        <div class="log-content" id="log-out-content">-- waiting for path --</div>
+      </div>
+      <div class="log-pane">
+        <label>Stderr path</label>
+        <input id="log-err-path" type="text" placeholder="/home/user/slurm-12345.err">
+        <div class="log-content" id="log-err-content">-- waiting for path --</div>
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--t3);margin-top:12px">Content is loaded through /api/logs.</p>
+  </div>
+
+  <!-- VIEW: TRANSFER -->
+  <div class="view" id="view-transfer">
+    <div class="transfer-meta">
+      <span class="chip">User: <strong id="transfer-user-chip">-</strong></span>
+      <span class="chip">Host: <strong id="transfer-host-chip">-</strong></span>
+      <span class="chip">Protocol: rsync -avzP</span>
+    </div>
+
+    <div class="transfer-grid">
+      <div>
+        <div class="sec">
+          <div class="sec-title">Remote path browser</div>
+          <div class="card">
+            <div class="transfer-form">
+              <div class="field">
+                <label>Apuana path</label>
+                <input id="transfer-browse-path" type="text" placeholder="/home/CIN/user/project/results">
+              </div>
+              <div class="field">
+                <label>Search inside path</label>
+                <input id="transfer-search" type="text" placeholder="checkpoint, .out, results">
+              </div>
+            </div>
+            <div class="transfer-actions">
+              <button class="mini-btn primary" onclick="browseTransfer()">Browse</button>
+              <button class="mini-btn" onclick="browseTransferHome()">Home</button>
+              <button class="mini-btn" onclick="browseTransferParent()">Parent</button>
+              <button class="mini-btn" onclick="useBrowsePathForDownload()">Use current path</button>
+            </div>
+            <div id="transfer-browser" class="transfer-list"></div>
+            <p class="hint">The browser runs on Apuana and can inspect readable paths for the current account. It does not transfer data by itself.</p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sec">
+          <div class="sec-title">Download from Apuana</div>
+          <div class="card">
+            <div class="field" style="margin-bottom:10px">
+              <label>Remote file or directory</label>
+              <input id="download-remote" type="text" placeholder="/home/CIN/user/project/results/file.out">
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>Local destination path</label>
+              <input id="download-local" type="text" placeholder="~/Downloads/">
+            </div>
+            <label class="check-row"><input id="download-contents" type="checkbox">Copy directory contents with a trailing slash</label>
+            <div class="cmd-box" id="download-command"></div>
+            <div class="transfer-actions" style="margin-top:10px;margin-bottom:0">
+              <button class="mini-btn primary" onclick="refreshTransferCommands()">Build command</button>
+              <button class="mini-btn" onclick="copyTextFrom('download-command')">Copy</button>
+            </div>
+            <p class="hint">Run this command on your local machine. The dashboard cannot write directly to a local notebook path from the Apuana login node.</p>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-title">Upload to Apuana</div>
+          <div class="card">
+            <div class="field" style="margin-bottom:10px">
+              <label>Local file or directory</label>
+              <input id="upload-local" type="text" placeholder="~/Documents/my_project/">
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>Apuana destination path</label>
+              <input id="upload-remote" type="text" placeholder="/home/CIN/user/project/">
+            </div>
+            <label class="check-row"><input id="upload-contents" type="checkbox" checked>Copy directory contents with a trailing slash</label>
+            <div class="cmd-box" id="upload-command"></div>
+            <div class="transfer-actions" style="margin-top:10px;margin-bottom:0">
+              <button class="mini-btn primary" onclick="refreshTransferCommands()">Build command</button>
+              <button class="mini-btn" onclick="copyTextFrom('upload-command')">Copy</button>
+            </div>
+            <p class="hint">Run this command on your local machine so rsync can read your local files and send them to Apuana.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW: CLUSTER -->
+  <div class="view" id="view-cluster">
+    <div class="sec">
+      <div class="sec-title">Partitions (sinfo)</div>
+      <div id="cluster-table"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-title">Partition occupancy</div>
+      <div id="cluster-bars"></div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script src="/static/scripts/app.js"></script>
+</body>
+</html>

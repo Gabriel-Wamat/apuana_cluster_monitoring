@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
-"""Compatibility alias: use `streamlit run app.py`; this redirects to the generic app."""
-from app import main
+"""Compatibility entrypoint for the legacy Apuana dashboard name."""
 
-if __name__ == "__main__":
-    main()
+from pathlib import Path
+import runpy
+import sys
+
+
+target_dir = Path(__file__).resolve().parent / "streamlit_dashboard"
+sys.path.insert(0, str(target_dir))
+runpy.run_path(
+    str(target_dir / "dashboard_apuana.py"),
+    run_name="__main__",
+)

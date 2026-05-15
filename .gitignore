@@ -11,7 +11,18 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Streamlit runtime / tunnel
+# Runtime logs and pids
+*.log
+*.pid
 apuana/streamlit-*.log
 apuana/streamlit-*.pid
 apuana/*.pid
+
+# Local agent/editor state
+.claude/
+.codex/
+.DS_Store
+
+# Planning drafts kept local, not part of the runnable release
+design/
+docs/
