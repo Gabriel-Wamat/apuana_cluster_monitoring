@@ -13,7 +13,6 @@
   <a href="https://www.paramiko.org/"><img src="https://img.shields.io/badge/Paramiko-SSH-2F6DB3?style=flat" alt="Paramiko SSH"></a>
   <a href="https://pypi.org/project/keyring/"><img src="https://img.shields.io/badge/Keyring-OS%20Credential%20Store-6A5ACD?style=flat" alt="Keyring credential store"></a>
   <a href="https://pywebview.flowrl.com/"><img src="https://img.shields.io/badge/pywebview-Native%20Window-14C77B?style=flat" alt="pywebview native window"></a>
-  <a href="https://pyinstaller.org/"><img src="https://img.shields.io/badge/PyInstaller-App%20Bundle-0F172A?style=flat" alt="PyInstaller app bundle"></a>
   <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
   <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
   <img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow?style=flat" alt="PolyForm Noncommercial License">
@@ -62,31 +61,37 @@ git clone <repository-url>
 cd apuana_cluster_monitoring
 ```
 
-Depois escolha uma das formas abaixo, de acordo com o seu sistema e preferência.
+Depois escolha uma das formas abaixo. Em todos os sistemas, a primeira execução instala as dependências locais apenas quando necessário e prepara uma forma simples de abrir o Apuana Monitor novamente.
 
-### 1. macOS com app na Área de Trabalho
+| Sistema | Como rodar | O que é criado |
+| --- | --- | --- |
+| macOS | `./run.sh` | `Apuana Monitor.app` na Área de Trabalho |
+| Linux | `./run.sh` | atalho `.desktop` na Área de Trabalho |
+| Windows | `run.bat` | launcher `Apuana Monitor` na Área de Trabalho |
+
+### 1. macOS
 
 <p align="center">
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
 </p>
 
-Use esta opção se quiser gerar o **Apuana Monitor.app** localmente e abrir o projeto como um app comum. O pacote é criado na própria máquina do usuário.
+Use esta opção se quiser abrir o projeto como um app local, com nome e ícone próprios na Área de Trabalho.
 
 ```bash
 ./run.sh
 ```
 
-Na primeira execução, o script cria `.venv`, instala as dependências, usa PyInstaller quando disponível e cria **Apuana Monitor.app** na Área de Trabalho. Depois disso, basta abrir o app pelo ícone.
+Depois da primeira preparação, basta abrir **Apuana Monitor.app** pelo ícone.
 
-Para apenas preparar o app sem abrir a interface:
+Para apenas preparar o app sem abrir a interface imediatamente:
 
 ```bash
 python run.py --prepare-only
 ```
 
-### 2. Linux ou macOS pelo terminal
+### 2. Linux
 
-Use esta opção se preferir rodar o servidor local diretamente pelo script, sem depender do app da Área de Trabalho.
+Use esta opção para iniciar o servidor local e criar um atalho de Área de Trabalho compatível com ambientes Linux que suportam arquivos `.desktop`.
 
 ```bash
 ./run.sh
@@ -106,7 +111,7 @@ Em qualquer uma das opções, a primeira execução instala dependências apenas
 http://127.0.0.1:8501/
 ```
 
-No macOS, quando o ambiente permite, o app é empacotado com PyInstaller para aparecer como **Apuana Monitor** no Dock, com nome e ícone próprios. No Linux e Windows, o projeto cria launchers nativos do sistema e mantém fallback para o navegador padrão quando uma janela nativa não estiver disponível.
+Quando a janela nativa estiver disponível, o Apuana Monitor abre como app local. Caso contrário, o projeto mantém fallback para o navegador padrão.
 
 ## Próximas execuções
 
