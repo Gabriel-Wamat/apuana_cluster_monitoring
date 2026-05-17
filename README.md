@@ -32,6 +32,10 @@ O projeto reúne essas operações em uma interface local simples, permitindo ac
 - [Página do Apuana](https://apuana.cin.ufpe.br/)
 - [Helpdesk CIn: Cluster Apuana](https://helpdesk.cin.ufpe.br/servicos/cluster-apuana)
 
+<p align="center">
+  <img src="apuana/dashboard/static/assets/front.png" alt="Dashboard do Apuana Monitor" width="900">
+</p>
+
 ## O que ele faz
 
 - mostra o estado geral do cluster e das partições SLURM
