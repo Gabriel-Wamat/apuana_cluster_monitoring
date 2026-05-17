@@ -1,13 +1,15 @@
 <!-- SSH LOGIN -->
 <div class="auth-overlay" id="ssh-auth-overlay" aria-live="polite">
   <form class="auth-card" onsubmit="event.preventDefault(); submitSshLogin();">
+    <div class="auth-logo" aria-hidden="true">
+      <img src="/static/assets/apuana-logo-transparent.png" alt="">
+    </div>
     <div class="auth-kicker">Apuana Access</div>
-    <h2>SSH Login</h2>
     <p>Informe seu login do Apuana e a senha SSH.</p>
 
     <label class="auth-field" for="ssh-login">
       <span>Login</span>
-      <input id="ssh-login" type="text" autocomplete="username" spellcheck="false" placeholder="seu_login">
+      <input id="ssh-login" type="text" autocomplete="username" spellcheck="false" placeholder="User cin">
     </label>
 
     <label class="auth-field" for="ssh-password">
