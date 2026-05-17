@@ -1,6 +1,14 @@
-# Apuana Monitor
+<p align="center">
+  <img src="apuana/dashboard/static/assets/apuana-logo-transparent.png" alt="Apuana Monitor" width="120">
+</p>
 
-Dashboard local para acompanhar filas, jobs, GPUs, logs, arquivos remotos e transferências no cluster Apuana.
+<h1 align="center">Apuana Monitor</h1>
+
+<p align="center">
+  Dashboard local para acompanhar filas, jobs, GPUs, logs, arquivos remotos e transferências no cluster Apuana.
+</p>
+
+---
 
 O servidor roda apenas na máquina do usuário, em `127.0.0.1`, e abre uma sessão SSH com o Apuana somente depois do login no navegador. Nenhuma senha é salva no repositório.
 
