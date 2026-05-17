@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import platform
@@ -17,7 +18,7 @@ import time
 import venv
 import webbrowser
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 
 ROOT = Path(__file__).resolve().parent
@@ -76,6 +77,7 @@ def python_launcher_script() -> str:
 set -euo pipefail
 cd {root}
 export APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER=1
+export APUANA_MONITOR_DESKTOP_LAUNCH=1
 if [[ -x ".venv/bin/python" ]]; then
   PY=".venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
@@ -190,7 +192,7 @@ def ensure_linux_launcher(target_dir: Path) -> Path:
 Type=Application
 Name={LAUNCHER_NAME}
 Comment=Open the local Apuana Monitor dashboard
-Exec=/bin/sh -c "cd {root} && exec {python} {run_py}"
+Exec=/bin/sh -c "cd {root} && export APUANA_MONITOR_DESKTOP_LAUNCH=1 && exec {python} {run_py}"
 Icon={icon}
 Terminal=false
 Categories=Utility;
@@ -212,6 +214,7 @@ If Not fso.FileExists(python) Then
   python = "pythonw"
 End If
 shell.CurrentDirectory = root
+shell.Environment("PROCESS")("APUANA_MONITOR_DESKTOP_LAUNCH") = "1"
 command = Chr(34) & python & Chr(34) & " " & Chr(34) & root & "\\run.py" & Chr(34)
 shell.Run command, 0, False
 """, encoding="utf-8")
@@ -236,6 +239,241 @@ def ensure_desktop_launcher() -> Optional[Path]:
         return None
 
     return None
+
+
+def write_browser_loading_page(url: str) -> Path:
+    logo = APP_ICON_PNG.resolve().as_uri() if APP_ICON_PNG.exists() else ""
+    target = json.dumps(url)
+    logo_html = f'<img src="{html.escape(logo, quote=True)}" alt="">' if logo else ""
+    page = Path(tempfile.gettempdir()) / f"apuana-monitor-loading-{os.getpid()}.html"
+    page.write_text(f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apuana Monitor</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  body {{
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: #080d0a;
+    color: #eef4ff;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }}
+  main {{
+    width: min(420px, calc(100vw - 32px));
+    padding: 36px 30px;
+    border: 1px solid rgba(148, 163, 184, .22);
+    border-radius: 20px;
+    background: #101416;
+    box-shadow: 0 24px 90px rgba(0, 0, 0, .45);
+    text-align: center;
+  }}
+  img {{ width: 86px; height: 86px; object-fit: contain; margin-bottom: 18px; }}
+  h1 {{ margin: 0; font-size: 24px; line-height: 1.2; }}
+  p {{ margin: 10px 0 22px; color: #9aa7b3; line-height: 1.45; }}
+  .spinner {{
+    width: 34px;
+    height: 34px;
+    margin: 0 auto;
+    border-radius: 999px;
+    border: 3px solid rgba(20, 199, 123, .18);
+    border-top-color: #14c77b;
+    animation: spin .8s linear infinite;
+  }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+</style>
+</head>
+<body>
+<main>
+  {logo_html}
+  <h1>Carregando Apuana Monitor</h1>
+  <p>Preparando o servidor local. A tela de login abre automaticamente.</p>
+  <div class="spinner" aria-hidden="true"></div>
+</main>
+<script>
+const target = {target};
+async function check() {{
+  try {{
+    await fetch(target, {{ mode: "no-cors", cache: "no-store" }});
+    window.location.replace(target);
+  }} catch (_) {{
+    setTimeout(check, 600);
+  }}
+}}
+setTimeout(check, 300);
+</script>
+</body>
+</html>
+""", encoding="utf-8")
+    return page
+
+
+def start_browser_loading_notice(url: str) -> Optional[Callable[[], None]]:
+    try:
+        page = write_browser_loading_page(url)
+        open_url(page.resolve().as_uri())
+    except Exception:
+        return None
+
+    def close_page() -> None:
+        try:
+            page.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return close_page
+
+
+def start_loading_notice(enabled: bool, url: str) -> Optional[Callable[[], None]]:
+    if not enabled:
+        return None
+
+    stop_file = Path(tempfile.gettempdir()) / f"apuana-monitor-loading-{os.getpid()}.stop"
+    ready_file = Path(tempfile.gettempdir()) / f"apuana-monitor-loading-{os.getpid()}.ready"
+    try:
+        stop_file.unlink(missing_ok=True)
+        ready_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    script = r"""
+import sys
+import time
+from pathlib import Path
+
+stop_file = Path(sys.argv[1])
+ready_file = Path(sys.argv[2])
+icon_file = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+started_at = time.monotonic()
+
+try:
+    import tkinter as tk
+    from tkinter import ttk
+except Exception:
+    raise SystemExit(0)
+
+root = tk.Tk()
+root.title("Apuana Monitor")
+root.resizable(False, False)
+root.configure(bg="#101416")
+
+try:
+    root.attributes("-topmost", True)
+    root.after(900, lambda: root.attributes("-topmost", False))
+except Exception:
+    pass
+
+try:
+    root.attributes("-toolwindow", True)
+except Exception:
+    pass
+
+frame = tk.Frame(root, bg="#101416", padx=28, pady=24)
+frame.pack(fill="both", expand=True)
+
+photo = None
+if icon_file and icon_file.exists():
+    try:
+        photo = tk.PhotoImage(file=str(icon_file))
+        scale = max(photo.width() // 72, photo.height() // 72, 1)
+        if scale > 1:
+            photo = photo.subsample(scale, scale)
+        tk.Label(frame, image=photo, bg="#101416").pack(pady=(0, 14))
+    except Exception:
+        photo = None
+
+tk.Label(
+    frame,
+    text="Carregando Apuana Monitor",
+    bg="#101416",
+    fg="#eef4ff",
+    font=("Helvetica", 15, "bold"),
+).pack()
+tk.Label(
+    frame,
+    text="Preparando o servidor local e abrindo o navegador.",
+    bg="#101416",
+    fg="#9aa7b3",
+    font=("Helvetica", 11),
+).pack(pady=(8, 16))
+
+bar = ttk.Progressbar(frame, mode="indeterminate", length=260)
+bar.pack(fill="x")
+bar.start(12)
+
+def center():
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() - width) // 2
+    y = (root.winfo_screenheight() - height) // 2
+    root.geometry(f"{width}x{height}+{x}+{y}")
+
+def poll():
+    if stop_file.exists() or time.monotonic() - started_at > 600:
+        try:
+            stop_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        root.destroy()
+        return
+    root.after(120, poll)
+
+center()
+try:
+    ready_file.write_text("ready\n", encoding="ascii")
+except Exception:
+    pass
+root.after(120, poll)
+root.mainloop()
+"""
+
+    try:
+        kwargs = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            kwargs["start_new_session"] = True
+        process = subprocess.Popen([sys.executable, "-c", script, str(stop_file), str(ready_file), str(APP_ICON_PNG)], **kwargs)
+    except Exception:
+        return start_browser_loading_notice(url)
+
+    deadline = time.monotonic() + 0.8
+    while time.monotonic() < deadline:
+        if ready_file.exists():
+            break
+        if process.poll() is not None:
+            return start_browser_loading_notice(url)
+        time.sleep(0.04)
+    else:
+        try:
+            stop_file.write_text("done\n", encoding="ascii")
+        except Exception:
+            pass
+        return start_browser_loading_notice(url)
+
+    closed = False
+
+    def close_notice() -> None:
+        nonlocal closed
+        if closed:
+            return
+        closed = True
+        try:
+            stop_file.write_text("done\n", encoding="ascii")
+            ready_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return close_notice
 
 
 def ensure_venv() -> Path:
@@ -349,31 +587,45 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     url = f"http://127.0.0.1:{args.port}/"
-    if local_port_is_open(str(args.port)):
-        print(f"[apuana] dashboard already running at {url}")
-        if not args.no_browser:
+    close_loading_notice = start_loading_notice(
+        os.environ.get("APUANA_MONITOR_DESKTOP_LAUNCH") == "1" and not args.no_browser,
+        url,
+    )
+
+    def finish_loading_notice() -> None:
+        if close_loading_notice:
+            close_loading_notice()
+
+    try:
+        if local_port_is_open(str(args.port)):
+            print(f"[apuana] dashboard already running at {url}")
+            if not args.no_browser:
+                open_url(url)
+                finish_loading_notice()
+            return 0
+
+        launcher = ensure_desktop_launcher()
+        if launcher:
+            print(f"[apuana] desktop launcher ready: {launcher}")
+        python = ensure_venv()
+        ensure_deps(python)
+
+        env = os.environ.copy()
+        env["SLURM_MONITOR_PORT"] = str(args.port)
+        if args.host:
+            env["SLURM_MONITOR_SSH_HOST"] = args.host
+        if args.transfer_host:
+            env["SLURM_MONITOR_TRANSFER_HOST"] = args.transfer_host
+
+        print(f"[apuana] starting dashboard at {url}")
+        process = subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
+        if not args.no_browser and wait_for_local_port(str(args.port)):
             open_url(url)
-        return 0
+            finish_loading_notice()
 
-    launcher = ensure_desktop_launcher()
-    if launcher:
-        print(f"[apuana] desktop launcher ready: {launcher}")
-    python = ensure_venv()
-    ensure_deps(python)
-
-    env = os.environ.copy()
-    env["SLURM_MONITOR_PORT"] = str(args.port)
-    if args.host:
-        env["SLURM_MONITOR_SSH_HOST"] = args.host
-    if args.transfer_host:
-        env["SLURM_MONITOR_TRANSFER_HOST"] = args.transfer_host
-
-    print(f"[apuana] starting dashboard at {url}")
-    process = subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
-    if not args.no_browser and wait_for_local_port(str(args.port)):
-        open_url(url)
-
-    return process.wait()
+        return process.wait()
+    finally:
+        finish_loading_notice()
 
 
 if __name__ == "__main__":
