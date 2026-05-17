@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 
-from .config import JOB_ID_RE, TRANSFER_HOST, USER
+from .config import JOB_ID_RE, TRANSFER_HOST
 from .runtime import _run, _session_public
 
 _cache: dict = {}
@@ -200,6 +200,10 @@ def _resource_summary(rows: list[dict]) -> dict:
     }
 
 
+def _current_login() -> str:
+    return (_session_public().get("login") or "").strip()
+
+
 def _resources_payload() -> dict:
     rc, out, err = _run(
         ["squeue", "-h", "-o", "%i|%u|%P|%j|%T|%C|%m|%b|%D|%M|%R"], timeout=6
@@ -264,6 +268,8 @@ def _resources_payload() -> dict:
     for item in users:
         item["mem_human"] = _memory_human(item["mem_mb"])
 
+    current_login = _current_login()
+
     return {
         "ok": True,
         "error": "",
@@ -272,7 +278,7 @@ def _resources_payload() -> dict:
         "pending_jobs": pending,
         "running": _resource_summary(running),
         "pending": _resource_summary(pending),
-        "current_user": _resource_summary([job for job in running if job["user"] == USER]),
+        "current_user": _resource_summary([job for job in running if current_login and job["user"] == current_login]),
         "by_user": users,
         "login_cpu": _load_payload(),
     }
@@ -324,14 +330,15 @@ def _job_gpu_access(base_job_id: str) -> tuple[bool, str]:
     if not candidates:
         return False, "Job is not active in the current queue."
 
+    current_login = _current_login()
     own_running_gpu_jobs = [
         job for job in candidates
-        if job["user"] == USER and job["state"] == "RUNNING" and job["gpus"] > 0
+        if current_login and job["user"] == current_login and job["state"] == "RUNNING" and job["gpus"] > 0
     ]
     if own_running_gpu_jobs:
         return True, ""
 
-    if any(job["user"] != USER for job in candidates):
+    if any(not current_login or job["user"] != current_login for job in candidates):
         return False, "GPU telemetry is only available for your own jobs."
     if any(job["state"] != "RUNNING" for job in candidates):
         return False, "GPU telemetry is only available for RUNNING jobs."

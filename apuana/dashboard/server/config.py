@@ -3,7 +3,6 @@ import re
 from pathlib import Path
 
 PORT = int(os.environ.get("SLURM_MONITOR_PORT", 8501))
-USER = os.environ.get("USER", "")
 TRANSFER_HOST = os.environ.get(
     "SLURM_MONITOR_TRANSFER_HOST",
     os.environ.get("APUANA_MONITOR_TRANSFER_HOST", "slurm-client1.cin.ufpe.br"),
