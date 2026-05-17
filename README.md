@@ -22,7 +22,7 @@
 
 ## Motivação
 
-O **Apuana Monitor** foi desenvolvido para facilitar o acompanhamento e gerenciamento de atividades no cluster Apuana do CIn/UFPE de forma mais prática e organizada. A rotina de verificar filas, jobs, GPUs, logs e arquivos remotos normalmente exige múltiplos comandos e conexões manuais, o que pode tornar o fluxo de trabalho desafiador e pouco intuitivo, principalmente durante desenvolvimento, depuração e execução de experimentos.
+O **Apuana Monitor** foi desenvolvido com o objetivo de tornar o acompanhamento e o gerenciamento de atividades no cluster Apuana do CIn/UFPE mais práticos e organizados. Operações como a verificação de filas, jobs, GPUs, logs e arquivos remotos passaram a ser realizadas de forma mais intuitiva, especialmente durante etapas de desenvolvimento, depuração e execução de experimentos.
 
 O projeto reúne essas operações em uma interface local simples, permitindo acompanhar o estado do cluster, acessar logs e gerenciar arquivos com maior praticidade. Essa iniciativa visa fornecer uma ferramenta de apoio que torne o uso do ambiente mais direto e eficiente, preservando o fluxo operacional e as ferramentas nativas do ambiente.
 
