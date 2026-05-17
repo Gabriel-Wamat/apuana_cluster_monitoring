@@ -144,27 +144,63 @@ def start_server(port: int) -> subprocess.Popen:
 
 def delegate_to_bootstrap() -> int:
     run_py = ROOT / "run.py"
-    return subprocess.call([sys.executable, str(run_py), "--desktop-launch"])
+    return subprocess.call([sys.executable, str(run_py), "--prepare-only"])
+
+
+def open_app_window(url: str) -> bool:
+    try:
+        import webview
+    except Exception:
+        return False
+
+    try:
+        window = webview.create_window(
+            "Apuana Monitor",
+            url,
+            width=1280,
+            height=860,
+            min_size=(960, 640),
+            confirm_close=False,
+            background_color="#080d0a",
+        )
+        if APP_ICON_PNG.exists():
+            try:
+                window.icon = str(APP_ICON_PNG)
+            except Exception:
+                pass
+        webview.start()
+        return True
+    except Exception:
+        return False
+
+
+def open_dashboard(url: str) -> None:
+    if not open_app_window(url):
+        open_url(url)
 
 
 def main() -> int:
     port = int(os.environ.get("SLURM_MONITOR_PORT", "8501"))
     url = f"http://127.0.0.1:{port}/"
     if local_port_is_open(port):
-        open_url(url)
+        open_dashboard(url)
         return 0
 
     if not deps_are_ready():
-        return delegate_to_bootstrap()
+        code = delegate_to_bootstrap()
+        if code != 0 or not deps_are_ready():
+            return code
 
     process = start_server(port)
     if wait_for_local_port(port, 0.32):
-        open_url(url)
+        open_dashboard(url)
         return 0
 
     page = write_loading_page(url)
     open_url(page.resolve().as_uri())
     wait_for_local_port(port, 6.0)
+    if local_port_is_open(port):
+        open_dashboard(url)
     return 0 if process.poll() is None else process.returncode or 0
 
 

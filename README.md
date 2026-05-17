@@ -12,6 +12,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white" alt="Python 3.9+"></a>
   <a href="https://www.paramiko.org/"><img src="https://img.shields.io/badge/Paramiko-SSH-2F6DB3?style=flat" alt="Paramiko SSH"></a>
   <a href="https://pypi.org/project/keyring/"><img src="https://img.shields.io/badge/Keyring-OS%20Credential%20Store-6A5ACD?style=flat" alt="Keyring credential store"></a>
+  <a href="https://pywebview.flowrl.com/"><img src="https://img.shields.io/badge/pywebview-Native%20Window-14C77B?style=flat" alt="pywebview native window"></a>
   <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
   <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
   <img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow?style=flat" alt="PolyForm Noncommercial License">
@@ -80,7 +81,7 @@ http://127.0.0.1:8501/
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Ícone do app Apuana Monitor" width="96">
 </p>
 
-Depois da primeira execução, basta abrir o atalho **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre o navegador padrão do sistema, sem precisar abrir IDE ou terminal.
+Depois da primeira execução, basta abrir o atalho **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre uma janela nativa do app, sem precisar abrir IDE ou terminal. Se o sistema não tiver backend gráfico compatível para a janela nativa, o launcher abre o navegador padrão como fallback.
 
 ## Login e segurança
 

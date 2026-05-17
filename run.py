@@ -579,6 +579,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--transfer-host", default=os.environ.get("SLURM_MONITOR_TRANSFER_HOST", ""), help="host used in transfer commands")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
     parser.add_argument("--desktop-launch", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--prepare-only", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -652,6 +653,14 @@ def run_desktop_launch(args: argparse.Namespace, url: str) -> int:
 def main() -> int:
     args = parse_args()
     url = f"http://127.0.0.1:{args.port}/"
+    if args.prepare_only:
+        launcher = ensure_desktop_launcher()
+        if launcher:
+            print(f"[apuana] desktop launcher ready: {launcher}")
+        python = ensure_venv()
+        ensure_deps(python)
+        return 0
+
     if args.desktop_launch:
         return run_desktop_launch(args, url)
 
