@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import venv
 import webbrowser
 from pathlib import Path
@@ -74,6 +75,7 @@ def python_launcher_script() -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 cd {root}
+export APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER=1
 if [[ -x ".venv/bin/python" ]]; then
   PY=".venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
@@ -115,8 +117,30 @@ def create_macos_icon(app_dir: Path) -> str:
     return "ApuanaMonitor.png"
 
 
+def macos_launcher_is_current(app_dir: Path) -> bool:
+    contents = app_dir / "Contents"
+    executable = contents / "MacOS" / LAUNCHER_NAME
+    info = contents / "Info.plist"
+    pkg = contents / "PkgInfo"
+    icon = contents / "Resources" / "ApuanaMonitor.icns"
+    required = (executable, info, pkg, icon)
+    if not all(path.exists() for path in required):
+        return False
+
+    icon_source = APP_ICON_PNG if APP_ICON_PNG.exists() else ICON_PNG
+    sources = [ROOT / "run.py"]
+    if icon_source.exists():
+        sources.append(icon_source)
+
+    oldest_output = min(path.stat().st_mtime for path in required)
+    return max(path.stat().st_mtime for path in sources) <= oldest_output
+
+
 def ensure_macos_launcher(target_dir: Path) -> Path:
     app_dir = target_dir / f"{LAUNCHER_NAME}.app"
+    if app_dir.exists() and macos_launcher_is_current(app_dir):
+        return app_dir
+
     if app_dir.exists():
         shutil.rmtree(app_dir)
 
@@ -271,6 +295,15 @@ def local_port_is_open(port: str) -> bool:
         return sock.connect_ex(("127.0.0.1", value)) == 0
 
 
+def wait_for_local_port(port: str, timeout: float = 6.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if local_port_is_open(port):
+            return True
+        time.sleep(0.05)
+    return local_port_is_open(port)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local Apuana Monitor dashboard.")
     parser.add_argument("--port", default=os.environ.get("SLURM_MONITOR_PORT", "8501"), help="local HTTP port")
@@ -282,6 +315,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    url = f"http://127.0.0.1:{args.port}/"
+    if local_port_is_open(str(args.port)):
+        print(f"[apuana] dashboard already running at {url}")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return 0
+
     launcher = ensure_desktop_launcher()
     if launcher:
         print(f"[apuana] desktop launcher ready: {launcher}")
@@ -295,18 +335,12 @@ def main() -> int:
     if args.transfer_host:
         env["SLURM_MONITOR_TRANSFER_HOST"] = args.transfer_host
 
-    url = f"http://127.0.0.1:{args.port}/"
-    if local_port_is_open(str(args.port)):
-        print(f"[apuana] dashboard already running at {url}")
-        if not args.no_browser:
-            webbrowser.open(url)
-        return 0
-
     print(f"[apuana] starting dashboard at {url}")
-    if not args.no_browser:
+    process = subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
+    if not args.no_browser and wait_for_local_port(str(args.port)):
         webbrowser.open(url)
 
-    return subprocess.call([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
+    return process.wait()
 
 
 if __name__ == "__main__":
