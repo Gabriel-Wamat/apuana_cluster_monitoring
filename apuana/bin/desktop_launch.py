@@ -154,18 +154,6 @@ def open_app_window(url: str) -> bool:
         return False
 
     try:
-        if platform.system().lower() == "darwin":
-            try:
-                import AppKit
-                import Foundation
-
-                Foundation.NSProcessInfo.processInfo().setProcessName_("Apuana Monitor")
-                image = AppKit.NSImage.alloc().initWithContentsOfFile_(str(APP_ICON_PNG))
-                if image:
-                    AppKit.NSApplication.sharedApplication().setApplicationIconImage_(image)
-            except Exception:
-                pass
-
         window = webview.create_window(
             "Apuana Monitor",
             url,
@@ -180,7 +168,7 @@ def open_app_window(url: str) -> bool:
                 window.icon = str(APP_ICON_PNG)
             except Exception:
                 pass
-        webview.start(icon=str(APP_ICON_PNG) if APP_ICON_PNG.exists() else None)
+        webview.start()
         return True
     except Exception:
         return False

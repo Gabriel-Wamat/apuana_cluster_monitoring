@@ -90,7 +90,8 @@ else
   fi
   exit 1
 fi
-exec "$PY" {launcher_py}
+nohup "$PY" {launcher_py} >/dev/null 2>&1 &
+exit 0
 """
 
 
@@ -172,6 +173,7 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
   <key>CFBundleIdentifier</key><string>local.apuana.monitor</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   {icon_keys}
+  <key>LSUIElement</key><true/>
 </dict>
 </plist>
 """, encoding="utf-8")
