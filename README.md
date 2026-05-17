@@ -21,9 +21,9 @@
 
 ## Motivação
 
-O **Apuana Monitor** nasceu para deixar o uso do cluster Apuana mais simples e confortável para estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. O Apuana é uma infraestrutura importante para disciplinas, experimentos e pesquisa em computação, mas acompanhar filas, jobs, GPUs, logs e arquivos remotos pode ser trabalhoso quando tudo precisa ser feito manualmente pelo terminal.
+O **Apuana Monitor** foi criado para tornar o acesso ao cluster Apuana mais simples, confortável e acessível para estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. O cluster é uma infraestrutura importante para disciplinas, experimentos e pesquisa em computação, mas acompanhar filas, jobs, GPUs, logs e arquivos remotos pode ser trabalhoso quando tudo depende do terminal.
 
-A proposta do projeto é servir como uma camada de apoio: uma interface local, segura e organizada que ajuda o usuário a entender melhor o estado do cluster antes de executar, depurar ou recuperar seus experimentos. Ele não substitui o aprendizado sobre o Apuana; apenas torna esse caminho mais claro, com menos atrito e mais autonomia para quem está começando ou já usa o cluster com frequência.
+A proposta do projeto é oferecer uma camada de apoio local, segura e organizada para ajudar o usuário a entender o estado do cluster antes de executar, depurar ou recuperar seus experimentos. Ele não substitui o aprendizado sobre o Apuana; apenas torna esse caminho mais claro, com menos atrito e mais autonomia.
 
 ## O que ele faz
 
