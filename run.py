@@ -22,6 +22,7 @@ from typing import Optional, Union
 ROOT = Path(__file__).resolve().parent
 DASHBOARD_DIR = ROOT / "apuana" / "dashboard"
 ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana.png"
+APP_ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana-app-icon.png"
 REQUIREMENTS = ROOT / "requirements.txt"
 VENV_DIR = ROOT / ".venv"
 MARKER = VENV_DIR / ".apuana-monitor-deps.json"
@@ -92,7 +93,8 @@ exec "$PY" {run_py}
 def create_macos_icon(app_dir: Path) -> str:
     resources = app_dir / "Contents" / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
-    if not ICON_PNG.exists():
+    icon_source = APP_ICON_PNG if APP_ICON_PNG.exists() else ICON_PNG
+    if not icon_source.exists():
         return ""
 
     icns = resources / "ApuanaMonitor.icns"
@@ -102,14 +104,14 @@ def create_macos_icon(app_dir: Path) -> str:
                 iconset = Path(tmp) / "ApuanaMonitor.iconset"
                 iconset.mkdir()
                 for size in (16, 32, 128, 256, 512):
-                    run(["sips", "-z", str(size), str(size), str(ICON_PNG), "--out", str(iconset / f"icon_{size}x{size}.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    run(["sips", "-z", str(size * 2), str(size * 2), str(ICON_PNG), "--out", str(iconset / f"icon_{size}x{size}@2x.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    run(["sips", "-z", str(size), str(size), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    run(["sips", "-z", str(size * 2), str(size * 2), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}@2x.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return "ApuanaMonitor.icns"
         except Exception:
             pass
 
-    shutil.copy2(ICON_PNG, resources / "ApuanaMonitor.png")
+    shutil.copy2(icon_source, resources / "ApuanaMonitor.png")
     return "ApuanaMonitor.png"
 
 
