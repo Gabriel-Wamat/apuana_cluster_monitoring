@@ -8,6 +8,15 @@
   Dashboard local para acompanhar filas, jobs, GPUs, logs, arquivos remotos e transferências no cluster Apuana.
 </p>
 
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white" alt="Python 3.9+"></a>
+  <a href="https://www.paramiko.org/"><img src="https://img.shields.io/badge/Paramiko-SSH-2F6DB3?style=flat" alt="Paramiko SSH"></a>
+  <a href="https://pypi.org/project/keyring/"><img src="https://img.shields.io/badge/Keyring-OS%20Credential%20Store-6A5ACD?style=flat" alt="Keyring credential store"></a>
+  <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
+  <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
+  <img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow?style=flat" alt="PolyForm Noncommercial License">
+</p>
+
 ---
 
 ## Motivação
