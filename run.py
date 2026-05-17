@@ -291,7 +291,7 @@ def write_browser_loading_page(url: str) -> Path:
 <main>
   {logo_html}
   <h1>Carregando Apuana Monitor</h1>
-  <p>Preparando o servidor local. A tela de login abre automaticamente.</p>
+  <p>Preparando o servidor local.</p>
   <div class="spinner" aria-hidden="true"></div>
 </main>
 <script>
