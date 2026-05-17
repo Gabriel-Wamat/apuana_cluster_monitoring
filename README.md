@@ -25,6 +25,11 @@ O **Apuana Monitor** foi desenvolvido para facilitar o acompanhamento e gerencia
 
 O projeto reúne essas operações em uma interface local simples, permitindo acompanhar o estado do cluster, acessar logs e gerenciar arquivos com maior praticidade. Essa iniciativa visa fornecer uma ferramenta de apoio que torne o uso do ambiente mais direto e eficiente, preservando o fluxo operacional e as ferramentas nativas do ambiente.
 
+## Referências oficiais
+
+- [Página do Apuana](https://apuana.cin.ufpe.br/)
+- [Helpdesk CIn: Cluster Apuana](https://helpdesk.cin.ufpe.br/servicos/cluster-apuana)
+
 ## O que ele faz
 
 - mostra o estado geral do cluster e das partições SLURM
