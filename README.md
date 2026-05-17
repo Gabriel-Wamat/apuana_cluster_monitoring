@@ -15,7 +15,7 @@
   <a href="https://pywebview.flowrl.com/"><img src="https://img.shields.io/badge/pywebview-Native%20Window-14C77B?style=flat" alt="pywebview native window"></a>
   <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
   <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
-  <img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow?style=flat" alt="PolyForm Noncommercial License">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="MIT License">
 </p>
 
 ---
@@ -187,6 +187,6 @@ find apuana/dashboard/static/scripts -name '*.js' -print0 | xargs -0 -n1 node --
 
 ## Licença
 
-Este projeto usa a **PolyForm Noncommercial License 1.0.0**.
+Este projeto usa a **MIT License**.
 
-Você pode estudar, usar, modificar e contribuir para fins não comerciais, mantendo os créditos e avisos de licença. Uso comercial, revenda, redistribuição paga ou incorporação em produto/serviço comercial exige autorização prévia por escrito.
+Você pode usar, estudar, modificar e contribuir livremente. A única exigência é manter o aviso de copyright e a licença nas cópias ou partes substanciais do projeto.
