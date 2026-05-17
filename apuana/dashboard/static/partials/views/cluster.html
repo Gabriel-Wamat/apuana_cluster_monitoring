@@ -1,0 +1,18 @@
+  <!-- VIEW: CLUSTER -->
+  <div class="view" id="view-cluster">
+    <div class="sec">
+      <div class="sec-title">Partitions (sinfo)</div>
+      <div id="cluster-table"></div>
+    </div>
+    <div class="sec cluster-state-sec">
+      <div class="cluster-state-frame">
+        <div class="cluster-state-head">
+          <div>
+            <div class="sec-title">Nodes by partition state</div>
+            <p class="cluster-bars-note">Each row groups the nodes reported by <code>sinfo</code> for that partition and splits them by current SLURM state.</p>
+          </div>
+        </div>
+        <div id="cluster-bars" class="cluster-bars-list"></div>
+      </div>
+    </div>
+  </div>

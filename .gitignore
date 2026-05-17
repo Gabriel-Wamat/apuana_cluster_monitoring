@@ -1,4 +1,6 @@
 # Local dashboard virtual environment
+.venv/
+.venv*/
 apuana/.venv-monitor/
 **/.venv-monitor/
 
@@ -26,3 +28,8 @@ apuana/*.pid
 # Planning drafts kept local, not part of the runnable release
 design/
 docs/
+research_rag/
+apuana/dashboard/static/content/*.md
+
+# Local-only author protection key — never publish
+UNPROTECT.md

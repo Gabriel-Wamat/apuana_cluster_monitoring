@@ -1,0 +1,145 @@
+  <!-- VIEW: CODE -->
+  <div class="view" id="view-code">
+    <div class="code-workspace">
+      <aside class="code-sidebar">
+        <div class="code-sidebar-head">
+          <div class="sec-title">Code workspace</div>
+          <button class="code-help-open" id="code-help-open" type="button" aria-label="Open Apuana help" title="Apuana help">?</button>
+        </div>
+        <div class="code-control code-folder-picker">
+          <label for="code-folder-select">Current folder</label>
+          <button class="code-folder-select" id="code-folder-select" type="button" aria-expanded="false">
+            <span id="code-folder-select-label">/home/CIN/&lt;usuario&gt;</span>
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="code-folder-menu" id="code-folder-menu" aria-hidden="true"></div>
+        </div>
+        <div class="code-control code-search-wrap">
+          <label for="code-search">Search files and folders</label>
+          <div class="code-search-row">
+            <button class="icon-btn" id="code-up" type="button" aria-label="Up folder" title="Up folder">
+              <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+            </button>
+            <button class="icon-btn primary" id="code-refresh" type="button" aria-label="Refresh files" title="Refresh files">
+              <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>
+            </button>
+            <button class="icon-btn" id="code-new-file" type="button" aria-label="New file" title="New file">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
+            </button>
+            <button class="icon-btn" id="code-new-folder" type="button" aria-label="New folder" title="New folder">
+              <svg viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 16v-5"/><path d="M9.5 13.5h5"/></svg>
+            </button>
+            <div class="code-search-box">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input id="code-search" type="text" placeholder="Type">
+            </div>
+          </div>
+        </div>
+        <div id="code-file-tree" class="code-file-tree"></div>
+      </aside>
+
+      <section class="code-editor-shell">
+        <div class="code-editor-topbar">
+          <div class="code-editor-tabs" id="code-tabs"></div>
+          <button class="code-terminal-toggle" id="code-terminal-toggle" type="button" aria-label="Open Apuana terminal" title="Open Apuana terminal" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><path d="m4 17 6-5-6-5"/><path d="M12 19h8"/></svg>
+          </button>
+        </div>
+        <div class="code-editor-head">
+          <div>
+            <div class="code-file-title" id="code-file-title">Select a code file</div>
+            <div class="code-file-meta" id="code-file-meta">Choose a project folder and open a file from the left panel.</div>
+          </div>
+          <span class="code-language-pill is-code" id="code-language-pill" title="Code" aria-label="Code"><span aria-hidden="true">&lt;/&gt;</span></span>
+        </div>
+        <div class="code-editor" id="code-editor">
+          <div class="code-empty">No file selected.</div>
+        </div>
+      </section>
+    </div>
+    <section class="code-terminal-panel" id="code-terminal-panel" aria-hidden="true">
+      <div class="code-terminal-head">
+        <div class="code-terminal-tabs">
+          <button class="code-terminal-tab active" type="button">
+            <svg viewBox="0 0 24 24"><path d="m4 17 6-5-6-5"/><path d="M12 19h8"/></svg>
+            Terminal
+          </button>
+        </div>
+        <div class="code-terminal-meta">
+          <span class="code-terminal-status" id="code-terminal-status">Idle</span>
+          <button class="icon-btn" id="code-terminal-clear" type="button" aria-label="Clear terminal" title="Clear terminal">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+          </button>
+          <button class="icon-btn" id="code-terminal-interrupt" type="button" aria-label="Interrupt command" title="Interrupt command">
+            <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+          </button>
+          <button class="icon-btn" id="code-terminal-close" type="button" aria-label="Close terminal" title="Close terminal">
+            <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="code-terminal-screen" id="code-terminal-screen" tabindex="0" role="textbox" aria-label="Apuana terminal" spellcheck="false">
+        <pre id="code-terminal-output"></pre>
+        <span class="code-terminal-cursor" id="code-terminal-cursor" aria-hidden="true"></span>
+      </div>
+    </section>
+
+    <div class="remote-modal" id="code-create-modal" aria-hidden="true">
+      <div class="remote-modal-card code-create-card">
+        <h3 id="code-create-title">Create item</h3>
+        <p id="code-create-copy">Create inside the current Apuana folder.</p>
+        <label class="code-modal-label" for="code-create-name">Name</label>
+        <input id="code-create-name" class="code-modal-input" type="text" placeholder="main.py">
+        <p class="code-modal-error" id="code-create-error" role="alert"></p>
+        <div class="remote-modal-actions">
+          <button class="mini-btn" type="button" id="code-create-cancel">Cancel</button>
+          <button class="mini-btn primary" type="button" id="code-create-confirm">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="remote-modal" id="code-delete-modal" aria-hidden="true">
+      <div class="remote-modal-card remote-modal-danger">
+        <div class="remote-modal-icon">
+          <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </div>
+        <div>
+          <h3>Delete code item?</h3>
+          <p id="code-delete-copy">This action cannot be undone.</p>
+          <div class="remote-modal-actions">
+            <button class="mini-btn" type="button" id="code-delete-cancel">Cancel</button>
+            <button class="mini-btn danger" type="button" id="code-delete-confirm">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="remote-modal code-help-modal" id="code-help-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="code-help-title">
+      <div class="remote-modal-card code-help-card">
+        <div class="code-help-header">
+          <div>
+            <h3 id="code-help-title">Apuana guide</h3>
+            <p>SLURM, environments, files, transfer and cluster diagnostics.</p>
+          </div>
+          <div class="code-help-header-actions" role="group" aria-label="Help view mode">
+            <button class="code-help-mode active" id="code-help-preview-mode" type="button">Preview</button>
+            <button class="code-help-mode" id="code-help-edit-mode" type="button">Edit</button>
+            <button class="icon-btn" id="code-help-close" type="button" aria-label="Close help" title="Close help">
+              <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="code-help-body">
+          <div class="code-help-preview" id="code-help-preview-pane"></div>
+          <textarea class="code-help-editor hidden" id="code-help-editor" spellcheck="false"></textarea>
+        </div>
+        <div class="code-help-actions">
+          <button class="mini-btn" type="button" id="code-help-reset">Reset</button>
+          <div>
+            <button class="mini-btn" type="button" id="code-help-cancel">Close</button>
+            <button class="mini-btn primary" type="button" id="code-help-save">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>

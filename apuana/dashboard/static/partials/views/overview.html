@@ -1,0 +1,36 @@
+  <!-- VIEW: OVERVIEW -->
+  <div class="view active" id="view-overview">
+    <div class="kpi-grid" id="kpis"></div>
+    <div class="sec resource-sec">
+      <div class="sec-title">CPU and memory usage</div>
+      <div id="resource-summary"></div>
+    </div>
+    <div class="sec users-summary-sec">
+      <div class="sec-title">Users in queue</div>
+      <div id="users-table"></div>
+    </div>
+    <div class="ov-grid">
+      <div class="overview-main-col">
+        <div class="sec global-queue-sec">
+          <div class="sec-title queue-title-row">
+            <span>Global queue - <span id="q-global-count" style="color:var(--t3);font-size:10px;text-transform:none;letter-spacing:0"></span></span>
+          </div>
+          <div id="q-global"></div>
+        </div>
+      </div>
+      <div class="overview-side-rail">
+        <div class="card overview-side-card overview-health-card">
+          <div class="card-title">Cluster health</div>
+          <div id="health-list"></div>
+        </div>
+        <div class="card overview-side-card">
+          <div class="card-title">Storage</div>
+          <div id="disks"></div>
+        </div>
+        <div class="card overview-side-card">
+          <div class="card-title">Memory - Load</div>
+          <div id="sys-mem"></div>
+        </div>
+      </div>
+    </div>
+  </div>

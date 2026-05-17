@@ -1,0 +1,46 @@
+<!-- SIDEBAR -->
+<aside class="sb" id="app-sidebar">
+  <div class="sb-head">
+    <button class="sb-toggle" id="sb-toggle" type="button" aria-label="Expand sidebar" aria-expanded="false" title="Expand sidebar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+    </button>
+  </div>
+  <div class="sb-divider" aria-hidden="true"></div>
+  <nav class="sb-nav">
+    <button class="nb active" type="button" onclick="setView('overview')" title="Overview">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
+      <span class="nb-label">Overview</span>
+    </button>
+    <button class="nb" type="button" onclick="setView('jobs')" title="Jobs and GPU">
+      <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+      <span class="nb-label">Jobs</span>
+    </button>
+    <button class="nb" type="button" onclick="setView('logs')" title="Logs">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <span class="nb-label">Logs</span>
+    </button>
+    <button class="nb" type="button" onclick="setView('code')" title="Code">
+      <svg viewBox="0 0 24 24"><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/><path d="m14 4-4 16"/></svg>
+      <span class="nb-label">Code</span>
+    </button>
+    <button class="nb" type="button" onclick="setView('transfer')" title="Transfer">
+      <svg viewBox="0 0 24 24"><path d="M17 3h4v4"/><path d="M21 3l-7 7"/><path d="M7 21H3v-4"/><path d="M3 21l7-7"/><path d="M14 3H8a2 2 0 0 0-2 2v6"/><path d="M10 21h6a2 2 0 0 0 2-2v-6"/></svg>
+      <span class="nb-label">Transfer</span>
+    </button>
+    <button class="nb" type="button" onclick="setView('cluster')" title="Cluster">
+      <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      <span class="nb-label">Cluster</span>
+    </button>
+  </nav>
+  <div class="sb-footer">
+    <button class="sb-settings" id="sidebar-settings-btn" type="button" title="Settings" aria-label="Open user settings">
+      <span class="sb-settings-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.38 1.03V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.03-.38H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 10.38 3V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.39.51.7.9.9.25.13.53.2.81.2H21a2 2 0 1 1 0 4h-.09c-.28 0-.56.07-.81.2-.39.2-.7.51-.9.9Z"/></svg>
+      </span>
+      <span class="sb-settings-copy">
+        <span class="sb-settings-title">Settings</span>
+        <span class="sb-settings-user" id="sb-settings-user">Not signed in</span>
+      </span>
+    </button>
+  </div>
+</aside>

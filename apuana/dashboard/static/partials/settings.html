@@ -1,0 +1,54 @@
+<!-- USER SETTINGS -->
+<div class="settings-modal" id="user-settings-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="user-settings-title">
+  <div class="settings-card">
+    <div class="settings-head">
+      <div class="settings-head-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.38 1.03V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.03-.38H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 10.38 3V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.2.39.51.7.9.9.25.13.53.2.81.2H21a2 2 0 1 1 0 4h-.09c-.28 0-.56.07-.81.2-.39.2-.7.51-.9.9Z"/></svg>
+      </div>
+      <div>
+        <p class="settings-kicker">User settings</p>
+        <h2 id="user-settings-title">Apuana session</h2>
+      </div>
+      <button class="settings-close" id="user-settings-close" type="button" aria-label="Close settings">×</button>
+    </div>
+
+    <div class="settings-profile">
+      <div class="settings-avatar" id="settings-avatar">?</div>
+      <div>
+        <div class="settings-name" id="settings-login">Not signed in</div>
+        <div class="settings-subtitle" id="settings-status">SSH session unavailable</div>
+      </div>
+    </div>
+
+    <div class="settings-grid">
+      <div class="settings-field">
+        <span>Login</span>
+        <strong id="settings-field-login">-</strong>
+      </div>
+      <div class="settings-field">
+        <span>SSH host</span>
+        <strong id="settings-field-host">-</strong>
+      </div>
+      <div class="settings-field settings-field-wide">
+        <span>Apuana home</span>
+        <strong id="settings-field-home">-</strong>
+      </div>
+      <div class="settings-field">
+        <span>Remember session</span>
+        <strong id="settings-field-remember">-</strong>
+      </div>
+      <div class="settings-field">
+        <span>Current node</span>
+        <strong id="settings-field-node">-</strong>
+      </div>
+      <div class="settings-field settings-field-wide">
+        <span>Last update</span>
+        <strong id="settings-field-updated">-</strong>
+      </div>
+    </div>
+
+    <div class="settings-actions">
+      <button class="mini-btn" id="user-settings-dismiss" type="button">Close</button>
+    </div>
+  </div>
+</div>

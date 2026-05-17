@@ -1,0 +1,62 @@
+<!-- SSH LOGIN -->
+<div class="auth-overlay" id="ssh-auth-overlay" aria-live="polite">
+  <form class="auth-card" onsubmit="event.preventDefault(); submitSshLogin();">
+    <div class="auth-kicker">Apuana Access</div>
+    <h2>SSH Login</h2>
+    <p>Informe seu login do Apuana e a senha SSH.</p>
+
+    <label class="auth-field" for="ssh-login">
+      <span>Login</span>
+      <input id="ssh-login" type="text" autocomplete="username" spellcheck="false" placeholder="seu_login">
+    </label>
+
+    <label class="auth-field" for="ssh-password">
+      <span>Senha SSH</span>
+      <div class="auth-password-row">
+        <input id="ssh-password" type="password" autocomplete="current-password" placeholder="Senha">
+        <button class="pw-toggle" id="ssh-password-toggle" type="button" onclick="togglePasswordVisibility()" aria-label="Mostrar senha" title="Mostrar senha">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path class="eye-open" d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/>
+            <circle class="eye-open" cx="12" cy="12" r="3"/>
+            <path class="eye-closed" d="M3 3l18 18"/>
+            <path class="eye-closed" d="M10.6 5.2A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.5 17.5 0 0 1-2.4 3.2"/>
+            <path class="eye-closed" d="M6.4 6.5C3.6 8.3 2 12 2 12a17.8 17.8 0 0 0 4.8 5.1A9.5 9.5 0 0 0 12 19c1.4 0 2.7-.3 3.8-.8"/>
+          </svg>
+        </button>
+      </div>
+    </label>
+
+    <label class="auth-remember">
+      <input id="ssh-remember" type="checkbox">
+      <span>Lembrar neste navegador</span>
+    </label>
+
+    <button class="auth-submit" id="ssh-login-btn" type="submit">Entrar</button>
+    <div class="auth-error" id="ssh-login-error"></div>
+  </form>
+</div>
+
+<div class="vpn-modal" id="vpn-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="vpn-modal-title">
+  <div class="vpn-modal-card">
+    <div class="vpn-modal-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3 2.8 19a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L12 3Z"/>
+        <path d="M12 9v5"/>
+        <path d="M12 18h.01"/>
+      </svg>
+    </div>
+    <div>
+      <h3 id="vpn-modal-title">VPN do CIn desconectada</h3>
+      <p>
+        Não foi possível alcançar o Apuana. Ligue a VPN do CIn e tente entrar novamente.
+        Caso ainda não tenha configurado a VPN, acesse o guia oficial do CIn-UFPE.
+      </p>
+      <a class="vpn-modal-link" href="https://helpdesk.cin.ufpe.br/servicos/conectividade/vpn" target="_blank" rel="noreferrer">
+        Configurar VPN no helpdesk do CIn-UFPE
+      </a>
+      <div class="vpn-modal-actions">
+        <button class="mini-btn primary" type="button" onclick="hideVpnModal()">Entendi</button>
+      </div>
+    </div>
+  </div>
+</div>

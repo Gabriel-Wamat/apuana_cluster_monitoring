@@ -1,0 +1,47 @@
+  <!-- VIEW: JOBS -->
+  <div class="view" id="view-jobs">
+    <div class="jobs-grid">
+      <div>
+        <div class="sec-title" style="margin-bottom:12px">Inspect job</div>
+        <div class="job-row job-inspect-row">
+          <input class="job-id-input" id="job-id-in" type="text" placeholder="Job ID (ex: 12345)">
+          <div class="job-select-wrap" id="job-queue-picker" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
+            <span class="job-select-label" id="job-queue-label">From queue</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <select class="job-queue-select" id="job-queue-sel" aria-label="Select job from queue"><option value="">From queue</option></select>
+            <div class="job-select-menu" id="job-queue-menu" role="listbox" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="job-panel">
+          <div class="job-panel-head">
+            <div class="card-title">Job details</div>
+            <button class="mini-btn" onclick="toggleJobRaw()">Raw output</button>
+          </div>
+          <div id="job-output" class="job-detail-empty">Select a Job or type a Job ID and press Enter.</div>
+          <div class="code-block job-raw" id="job-raw-output" hidden></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sec-title" style="margin-bottom:12px">GPU telemetry</div>
+        <div class="job-row gpu-telemetry-row">
+          <input class="gpu-job-id-input" id="gpu-job-id" type="text" placeholder="Your running Job ID">
+          <div class="job-select-wrap gpu-job-select-wrap" id="gpu-job-picker" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
+            <span class="job-select-label" id="gpu-job-label">Your running GPU job</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <select class="job-queue-select" id="gpu-job-sel" aria-label="Select running GPU job"><option value="">Your running GPU job</option></select>
+            <div class="job-select-menu" id="gpu-job-menu" role="listbox" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="gpu-panel">
+          <div class="gpu-panel-head">
+            <div class="card-title">GPU details</div>
+            <button class="mini-btn" onclick="toggleGpuRaw()">Raw telemetry</button>
+          </div>
+          <div id="gpu-status"></div>
+          <div class="gpu-grid" id="gpu-cards"></div>
+          <div class="code-block gpu-raw" id="gpu-output" hidden>Select one of your running GPU jobs.</div>
+        </div>
+      </div>
+    </div>
+  </div>
