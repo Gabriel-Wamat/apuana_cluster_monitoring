@@ -603,7 +603,7 @@ body[data-view="code"] #view-code.terminal-open .code-workspace{height:clamp(360
 .code-help-open:hover{color:var(--t);background:rgba(20,199,123,.12);border-color:rgba(20,199,123,.42);
   box-shadow:0 0 0 3px rgba(20,199,123,.07)}
 .code-help-modal{z-index:86}
-.code-help-card{width:min(1380px,calc(100vw - 40px));height:min(84vh,820px);display:flex;flex-direction:column;
+.remote-modal-card.code-help-card{width:min(1040px,calc(100vw - 40px));height:min(84vh,820px);display:flex;flex-direction:column;
   padding:0;overflow:hidden;border-color:rgba(90,163,240,.22)}
 .code-help-header{display:flex;align-items:center;justify-content:flex-end;gap:8px;
   padding:14px 20px;background:linear-gradient(180deg,rgba(90,163,240,.05),rgba(255,255,255,.01))}
@@ -627,7 +627,7 @@ body[data-view="code"] #view-code.terminal-open .code-workspace{height:clamp(360
 .code-help-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;
   background:rgba(255,255,255,.012)}
 .code-help-actions>div{display:flex;gap:8px}
-@media(max-width:720px){.code-help-card{width:calc(100vw - 24px);height:calc(100vh - 24px)}.code-help-header{padding:12px}.code-help-preview .markdown-preview{padding:20px}.code-help-actions{padding:12px;flex-wrap:wrap}}
+@media(max-width:720px){.remote-modal-card.code-help-card{width:calc(100vw - 24px);height:calc(100vh - 24px)}.code-help-header{padding:12px}.code-help-preview .markdown-preview{padding:20px}.code-help-actions{padding:12px;flex-wrap:wrap}}
 .code-control label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);display:block;margin-bottom:7px}
 .code-control select,.code-control input{width:100%;height:36px;border-radius:9px;border:1px solid var(--bd);
   background:var(--s2);color:var(--t);font:12px/1 'JetBrains Mono',monospace;padding:0 10px;outline:none}
