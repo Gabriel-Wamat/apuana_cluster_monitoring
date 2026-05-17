@@ -23,6 +23,7 @@ from typing import Callable, Optional, Union
 
 ROOT = Path(__file__).resolve().parent
 DASHBOARD_DIR = ROOT / "apuana" / "dashboard"
+DESKTOP_LAUNCHER = ROOT / "apuana" / "bin" / "desktop_launch.py"
 ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana.png"
 APP_ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana-app-icon.png"
 REQUIREMENTS = ROOT / "requirements.txt"
@@ -72,7 +73,7 @@ def write_text_executable(path: Path, text: str) -> None:
 
 def python_launcher_script() -> str:
     root = shell_quote(ROOT)
-    run_py = shell_quote(ROOT / "run.py")
+    launcher_py = shell_quote(DESKTOP_LAUNCHER)
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 cd {root}
@@ -89,7 +90,8 @@ else
   fi
   exit 1
 fi
-exec "$PY" {run_py} --desktop-launch
+nohup "$PY" {launcher_py} >/dev/null 2>&1 &
+exit 0
 """
 
 
@@ -129,7 +131,7 @@ def macos_launcher_is_current(app_dir: Path) -> bool:
         return False
 
     icon_source = APP_ICON_PNG if APP_ICON_PNG.exists() else ICON_PNG
-    sources = [ROOT / "run.py"]
+    sources = [ROOT / "run.py", DESKTOP_LAUNCHER]
     if icon_source.exists():
         sources.append(icon_source)
 
@@ -186,12 +188,12 @@ def ensure_linux_launcher(target_dir: Path) -> Path:
     icon = ICON_PNG if ICON_PNG.exists() else ""
     root = shell_quote(ROOT)
     python = shell_quote(sys.executable)
-    run_py = shell_quote(ROOT / "run.py")
+    launcher_py = shell_quote(DESKTOP_LAUNCHER)
     launcher.write_text(f"""[Desktop Entry]
 Type=Application
 Name={LAUNCHER_NAME}
 Comment=Open the local Apuana Monitor dashboard
-Exec=/bin/sh -c "cd {root} && exec {python} {run_py} --desktop-launch"
+Exec=/bin/sh -c "cd {root} && nohup {python} {launcher_py} >/dev/null 2>&1 &"
 Icon={icon}
 Terminal=false
 Categories=Utility;
@@ -208,12 +210,13 @@ def ensure_windows_launcher(target_dir: Path) -> Path:
     launcher.write_text(f"""Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 root = "{root}"
+launcher = root & "\\apuana\\bin\\desktop_launch.py"
 python = root & "\\.venv\\Scripts\\pythonw.exe"
 If Not fso.FileExists(python) Then
   python = "pythonw"
 End If
 shell.CurrentDirectory = root
-command = Chr(34) & python & Chr(34) & " " & Chr(34) & root & "\\run.py" & Chr(34) & " --desktop-launch"
+command = Chr(34) & python & Chr(34) & " " & Chr(34) & launcher & Chr(34)
 shell.Run command, 0, False
 """, encoding="utf-8")
     return launcher
@@ -589,8 +592,15 @@ def server_env(args: argparse.Namespace) -> dict[str, str]:
     return env
 
 
-def start_server_process(python: Path, args: argparse.Namespace) -> subprocess.Popen:
-    return subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=server_env(args))
+def start_server_process(python: Path, args: argparse.Namespace, detached: bool = False) -> subprocess.Popen:
+    kwargs = {"cwd": str(DASHBOARD_DIR), "env": server_env(args)}
+    if detached:
+        kwargs.update({"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL})
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        else:
+            kwargs["start_new_session"] = True
+    return subprocess.Popen([str(python), "-m", "server"], **kwargs)
 
 
 def desktop_python() -> Path:
@@ -609,20 +619,32 @@ def run_desktop_launch(args: argparse.Namespace, url: str) -> int:
             open_url(url)
         return 0
 
-    close_loading_notice = start_loading_notice(not args.no_browser, url)
+    python = venv_python()
+    deps_ready = python.exists() and deps_are_ready(python, requirements_hash())
+    close_loading_notice = start_loading_notice(not args.no_browser and not deps_ready, url)
 
     def finish_loading_notice() -> None:
         if close_loading_notice:
             close_loading_notice()
 
     try:
-        python = desktop_python()
+        if not deps_ready:
+            python = desktop_python()
         print(f"[apuana] starting dashboard at {url}")
-        process = start_server_process(python, args)
+        process = start_server_process(python, args, detached=True)
+        if wait_for_local_port(str(args.port), timeout=0.35):
+            if not args.no_browser:
+                open_url(url)
+            finish_loading_notice()
+            return 0
+
+        if not close_loading_notice:
+            close_loading_notice = start_loading_notice(not args.no_browser, url)
+
         if not args.no_browser and wait_for_local_port(str(args.port)):
             open_url(url)
             finish_loading_notice()
-        return process.wait()
+        return 0 if process.poll() is None else process.returncode or 0
     finally:
         finish_loading_notice()
 
