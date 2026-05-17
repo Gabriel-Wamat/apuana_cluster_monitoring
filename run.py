@@ -304,6 +304,39 @@ def wait_for_local_port(port: str, timeout: float = 6.0) -> bool:
     return local_port_is_open(port)
 
 
+def open_url(url: str) -> None:
+    system = platform.system().lower()
+    commands: list[list[str]] = []
+
+    if system == "darwin":
+        commands = [["open", url]]
+    elif system == "windows":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return
+        except Exception:
+            commands = [["cmd", "/c", "start", "", url]]
+    else:
+        commands = [
+            ["xdg-open", url],
+            ["gio", "open", url],
+            ["kde-open", url],
+            ["sensible-browser", url],
+            ["x-www-browser", url],
+        ]
+
+    for command in commands:
+        if command[0] not in {"cmd"} and not shutil.which(command[0]):
+            continue
+        try:
+            subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            continue
+
+    webbrowser.open(url)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local Apuana Monitor dashboard.")
     parser.add_argument("--port", default=os.environ.get("SLURM_MONITOR_PORT", "8501"), help="local HTTP port")
@@ -319,7 +352,7 @@ def main() -> int:
     if local_port_is_open(str(args.port)):
         print(f"[apuana] dashboard already running at {url}")
         if not args.no_browser:
-            webbrowser.open(url)
+            open_url(url)
         return 0
 
     launcher = ensure_desktop_launcher()
@@ -338,7 +371,7 @@ def main() -> int:
     print(f"[apuana] starting dashboard at {url}")
     process = subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
     if not args.no_browser and wait_for_local_port(str(args.port)):
-        webbrowser.open(url)
+        open_url(url)
 
     return process.wait()
 
