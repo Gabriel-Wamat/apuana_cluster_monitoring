@@ -21,9 +21,9 @@
 
 ## Motivação
 
-O **Apuana Monitor** foi criado para tornar o acesso ao cluster Apuana mais simples, confortável e acessível para estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. O cluster é uma infraestrutura importante para disciplinas, experimentos e pesquisa em computação, mas acompanhar filas, jobs, GPUs, logs e arquivos remotos pode ser trabalhoso quando tudo depende do terminal.
+O **Apuana Monitor** foi desenvolvido para facilitar o acompanhamento e gerenciamento de atividades no cluster Apuana de forma mais prática e organizada. A rotina de verificar filas, jobs, GPUs, logs e arquivos remotos normalmente exige múltiplos comandos e conexões manuais, o que pode tornar o fluxo de trabalho desafiador e pouco intuitivo, principalmente durante desenvolvimento, depuração e execução de experimentos.
 
-A proposta do projeto é oferecer uma camada de apoio local, segura e organizada para ajudar o usuário a entender o estado do cluster antes de executar, depurar ou recuperar seus experimentos. Ele não substitui o aprendizado sobre o Apuana; apenas torna esse caminho mais claro, com menos atrito e mais autonomia.
+O projeto reúne essas operações em uma interface local simples, permitindo acompanhar o estado do cluster, acessar logs e gerenciar arquivos com maior praticidade. Essa iniciativa visa fornecer uma ferramenta de apoio que torne o uso do ambiente mais direto e eficiente, preservando o fluxo operacional e as ferramentas nativas do ambiente.
 
 ## O que ele faz
 
@@ -38,7 +38,7 @@ A proposta do projeto é oferecer uma camada de apoio local, segura e organizada
 
 - Python 3.9+
 - conta SSH ativa no Apuana
-- VPN/rede com acesso aos hosts do CIn, quando necessário
+- VPN/rede com acesso aos hosts do CIn(obrigatório):
 
 O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e fallback para o Python do sistema. Quem não usa gerenciador de versões precisa apenas manter Python 3.9+ instalado.
 
