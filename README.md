@@ -15,7 +15,7 @@
   <a href="https://pywebview.flowrl.com/"><img src="https://img.shields.io/badge/pywebview-Native%20Window-14C77B?style=flat" alt="pywebview native window"></a>
   <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
   <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="MIT License">
+  <img src="https://img.shields.io/badge/%E2%9A%96%EF%B8%8F%20License-MIT-yellow?style=flat" alt="MIT License">
 </p>
 
 ---
