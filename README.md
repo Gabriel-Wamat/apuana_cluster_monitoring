@@ -10,48 +10,65 @@
 
 ---
 
-O servidor roda apenas na máquina do usuário, em `127.0.0.1`, e abre uma sessão SSH com o Apuana somente depois do login no navegador. Nenhuma senha é salva no repositório.
-
 ## Motivação
 
-O **Apuana Monitor** nasceu para tornar o uso do cluster Apuana mais simples, direto e acessível para estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. Embora o Apuana seja uma infraestrutura essencial para experimentos, disciplinas, pesquisa e desenvolvimento em computação, o acesso cotidiano ao cluster ainda pode exigir familiaridade com terminal, comandos SLURM, navegação remota por SSH, leitura manual de logs e acompanhamento constante de filas e recursos.
+O **Apuana Monitor** foi criado para facilitar o uso cotidiano do cluster Apuana por estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. A ideia é reduzir a fricção de tarefas comuns, como acompanhar filas SLURM, verificar jobs, consultar GPUs, ler logs e navegar por arquivos remotos, sem exigir que tudo passe manualmente pelo terminal.
 
-A proposta deste projeto é reduzir essa barreira sem esconder o funcionamento do cluster. Ele oferece uma interface local, segura e organizada para acompanhar jobs, partições, GPUs, arquivos remotos, logs e transferências, ajudando o usuário a entender melhor o estado do ambiente antes de executar, depurar ou recuperar seus experimentos. Em vez de substituir o aprendizado sobre o Apuana, o monitor serve como uma camada de apoio para que esse aprendizado aconteça com menos atrito e mais clareza.
+O projeto não substitui o aprendizado sobre o cluster; ele organiza informações importantes em uma interface local, segura e mais acessível. Assim, quem está começando consegue ganhar autonomia mais rápido, e quem já usa o Apuana com frequência evita consultas repetitivas e acompanha execuções longas com mais clareza.
 
-Na prática, o Apuana Monitor ajuda quem está começando a usar o cluster e também quem já usa com frequência: evita consultas repetitivas, diminui erros operacionais, centraliza informações importantes e torna mais confortável acompanhar execuções longas. O objetivo é que qualquer pessoa autorizada no Apuana consiga abrir o projeto, fazer login com sua própria conta do CIn/UFPE e trabalhar com mais autonomia, sem depender de configurações específicas de uma máquina ou de um usuário.
+## O que ele faz
 
-## Rodar
+- mostra o estado geral do cluster e das partições SLURM
+- acompanha jobs, filas e uso de GPU
+- abre logs `.out` e `.err`
+- navega por arquivos remotos em `/home/CIN/<usuario>`
+- faz upload e download por sessão SSH autenticada
+- cria um atalho **Apuana Monitor** na Área de Trabalho na primeira execução
 
-Requisitos:
+## Requisitos
 
 - Python 3.9+
-- Conta SSH ativa no Apuana
+- conta SSH ativa no Apuana
 - VPN/rede com acesso aos hosts do CIn, quando necessário
+
+O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e fallback para o Python do sistema. Quem não usa gerenciador de versões precisa apenas manter Python 3.9+ instalado.
+
+## Rodar pela primeira vez
+
+Clone o projeto e entre na pasta:
 
 ```bash
 git clone <repository-url>
 cd apuana_cluster_monitoring
+```
+
+No macOS ou Linux:
+
+```bash
 ./run.sh
 ```
 
-No Windows, use:
+No Windows:
 
 ```bat
 run.bat
 ```
 
-O script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário e inicia:
+Na primeira execução, o script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário, cria o atalho **Apuana Monitor** na Área de Trabalho e abre:
 
 ```text
 http://127.0.0.1:8501/
 ```
 
-O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e fallback para o Python do sistema. Quem não usa gerenciador de versões pode simplesmente manter Python 3.9+ instalado.
+## Próximas execuções
 
-Depois, faça login no navegador com seu usuário e senha SSH do Apuana.
-Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais.
+Depois da primeira execução, basta abrir o atalho **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre o navegador padrão do sistema, sem precisar abrir IDE ou terminal.
 
-Na primeira execução, o `run.py` também cria um atalho **Apuana Monitor** na Área de Trabalho com a logo do projeto. Depois disso, basta abrir por esse atalho: ele inicia o servidor local em segundo plano e abre o navegador, sem precisar de IDE ou terminal.
+## Login e segurança
+
+O servidor roda apenas na máquina do usuário, em `127.0.0.1`, e só abre uma sessão SSH com o Apuana depois do login no navegador.
+
+Faça login com seu usuário e senha SSH do Apuana. Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais. Nenhuma senha é salva no repositório.
 
 ## Opções
 
@@ -69,20 +86,6 @@ SLURM_MONITOR_PORT=8520 ./run.sh
 SLURM_MONITOR_SSH_HOST=slurm-client1.cin.ufpe.br ./run.sh
 SLURM_MONITOR_TRANSFER_HOST=slurm-client1.cin.ufpe.br ./run.sh
 ```
-
-## O que inclui
-
-- visão geral do cluster e das partições SLURM
-- inspeção de jobs e uso de GPU
-- leitura de logs `.out` e `.err`
-- navegador de arquivos em `/home/CIN/<usuario>`
-- upload e download via sessão SSH autenticada
-
-## Licença
-
-Este projeto usa a **PolyForm Noncommercial License 1.0.0**.
-
-Você pode estudar, usar, modificar e contribuir para fins não comerciais, mantendo os créditos e avisos de licença. Uso comercial, revenda, redistribuição paga ou incorporação em produto/serviço comercial exige autorização prévia por escrito.
 
 ## Estrutura
 
@@ -103,6 +106,7 @@ apuana/lib/
 
 ```bash
 python -m compileall -q apuana/dashboard/server
+bash -n run.sh
 bash -n apuana/dashboard/run.sh
 ```
 
@@ -111,3 +115,9 @@ Se tiver Node.js instalado:
 ```bash
 find apuana/dashboard/static/scripts -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
+
+## Licença
+
+Este projeto usa a **PolyForm Noncommercial License 1.0.0**.
+
+Você pode estudar, usar, modificar e contribuir para fins não comerciais, mantendo os créditos e avisos de licença. Uso comercial, revenda, redistribuição paga ou incorporação em produto/serviço comercial exige autorização prévia por escrito.
