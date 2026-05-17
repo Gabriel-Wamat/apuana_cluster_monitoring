@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -23,6 +24,27 @@ APP_ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana-app
 REQUIREMENTS = ROOT / "requirements.txt"
 VENV_DIR = ROOT / ".venv"
 MARKER = VENV_DIR / ".apuana-monitor-deps.json"
+
+
+def log_file() -> Path:
+    system = platform.system().lower()
+    if system == "darwin":
+        base = Path.home() / "Library" / "Logs" / "Apuana Monitor"
+    elif os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Apuana Monitor" / "logs"
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "apuana-monitor"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "desktop-launch.log"
+
+
+def log(message: str) -> None:
+    try:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with log_file().open("a", encoding="utf-8") as file:
+            file.write(f"[{stamp}] {message}\n")
+    except Exception:
+        pass
 
 
 def venv_python() -> Path:
@@ -128,12 +150,16 @@ setTimeout(check,250);
 def start_server(port: int) -> subprocess.Popen:
     env = os.environ.copy()
     env["SLURM_MONITOR_PORT"] = str(port)
+    try:
+        output = log_file().open("a", encoding="utf-8")
+    except Exception:
+        output = subprocess.DEVNULL
     kwargs = {
         "cwd": str(DASHBOARD_DIR),
         "env": env,
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": output,
+        "stderr": output,
     }
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -142,18 +168,40 @@ def start_server(port: int) -> subprocess.Popen:
     return subprocess.Popen([str(venv_python()), "-m", "server"], **kwargs)
 
 
-def delegate_to_bootstrap() -> int:
+def bootstrap_command() -> list[str]:
     run_py = ROOT / "run.py"
-    return subprocess.call([sys.executable, str(run_py), "--prepare-only"])
+    if not getattr(sys, "frozen", False):
+        return [sys.executable, str(run_py), "--prepare-only"]
+    for name in ("python3", "python"):
+        executable = shutil.which(name)
+        if executable:
+            return [executable, str(run_py), "--prepare-only"]
+    return [str(venv_python()), str(run_py), "--prepare-only"]
+
+
+def delegate_to_bootstrap() -> int:
+    log("dependencies are not ready; delegating to bootstrap")
+    return subprocess.call(bootstrap_command())
 
 
 def open_app_window(url: str) -> bool:
     try:
         import webview
-    except Exception:
+    except Exception as exc:
+        log(f"pywebview import failed: {exc}")
         return False
 
     try:
+        if platform.system().lower() == "darwin":
+            try:
+                import AppKit
+
+                image = AppKit.NSImage.alloc().initWithContentsOfFile_(str(APP_ICON_PNG))
+                if image:
+                    AppKit.NSApplication.sharedApplication().setApplicationIconImage_(image)
+            except Exception as exc:
+                log(f"macOS app icon setup skipped: {exc}")
+
         window = webview.create_window(
             "Apuana Monitor",
             url,
@@ -170,7 +218,8 @@ def open_app_window(url: str) -> bool:
                 pass
         webview.start()
         return True
-    except Exception:
+    except Exception as exc:
+        log(f"pywebview window failed: {exc}")
         return False
 
 
@@ -182,27 +231,40 @@ def open_dashboard(url: str) -> None:
 def main() -> int:
     port = int(os.environ.get("SLURM_MONITOR_PORT", "8501"))
     url = f"http://127.0.0.1:{port}/"
+    log(f"desktop launcher started for {url}")
     if local_port_is_open(port):
+        log("server already running; opening dashboard")
         open_dashboard(url)
         return 0
 
     if not deps_are_ready():
         code = delegate_to_bootstrap()
         if code != 0 or not deps_are_ready():
+            log(f"bootstrap failed with code {code}")
             return code
 
+    log("starting local server")
     process = start_server(port)
     if wait_for_local_port(port, 0.32):
+        log("server became ready quickly; opening dashboard")
         open_dashboard(url)
         return 0
 
+    log("server still starting; opening loading page")
     page = write_loading_page(url)
     open_url(page.resolve().as_uri())
     wait_for_local_port(port, 6.0)
     if local_port_is_open(port):
+        log("server became ready after loading page; opening dashboard")
         open_dashboard(url)
-    return 0 if process.poll() is None else process.returncode or 0
+    code = 0 if process.poll() is None else process.returncode or 0
+    log(f"desktop launcher finished with code {code}")
+    return code
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        log(traceback.format_exc())
+        raise

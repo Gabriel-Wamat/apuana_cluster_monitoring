@@ -95,6 +95,131 @@ exit 0
 """
 
 
+def c_string(value: Union[Path, str]) -> str:
+    return json.dumps(str(value))
+
+
+def macos_native_launcher_source() -> str:
+    root = c_string(ROOT)
+    launcher_py = c_string(DESKTOP_LAUNCHER)
+    return f"""
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+static int is_exec(const char *path) {{
+  return access(path, X_OK) == 0;
+}}
+
+static void append_log(const char *message) {{
+  const char *home = getenv("HOME");
+  if (!home || !home[0]) {{
+    return;
+  }}
+
+  char dir[4096];
+  char path[4096];
+  snprintf(dir, sizeof(dir), "%s/Library/Logs/Apuana Monitor", home);
+  mkdir(dir, 0755);
+  snprintf(path, sizeof(path), "%s/launcher.log", dir);
+
+  FILE *file = fopen(path, "a");
+  if (!file) {{
+    return;
+  }}
+
+  time_t now = time(NULL);
+  struct tm local_time;
+  localtime_r(&now, &local_time);
+  char stamp[32];
+  strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local_time);
+  fprintf(file, "[%s] %s\\n", stamp, message);
+  fclose(file);
+}}
+
+int main(void) {{
+  const char *root = {root};
+  const char *launcher = {launcher_py};
+  char python[4096];
+  char detail[8192];
+
+  append_log("native launcher started");
+
+  if (chdir(root) != 0) {{
+    snprintf(detail, sizeof(detail), "could not enter project root: %s", strerror(errno));
+    append_log(detail);
+    return 126;
+  }}
+
+  setenv("APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER", "1", 1);
+  snprintf(python, sizeof(python), "%s/.venv/bin/python", root);
+
+  if (is_exec(python)) {{
+    append_log("starting with project virtualenv python");
+    char *const argv[] = {{ python, (char *)launcher, NULL }};
+    execv(python, argv);
+    snprintf(detail, sizeof(detail), "virtualenv python exec failed: %s", strerror(errno));
+    append_log(detail);
+  }}
+
+  append_log("project virtualenv python missing, trying python3 from PATH");
+  char *const fallback_argv[] = {{ "python3", (char *)launcher, NULL }};
+  execvp("python3", fallback_argv);
+
+  snprintf(detail, sizeof(detail), "python3 exec failed: %s", strerror(errno));
+  append_log(detail);
+  return 127;
+}}
+""".strip() + "\n"
+
+
+def write_macos_native_executable(executable: Path) -> bool:
+    compiler = shutil.which("clang") or shutil.which("cc")
+    if not compiler:
+        return False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "apuana-monitor-launcher.c"
+        source.write_text(macos_native_launcher_source(), encoding="utf-8")
+        try:
+            run([compiler, "-Os", str(source), "-o", str(executable)])
+        except Exception:
+            return False
+
+    executable.chmod(0o755)
+    return True
+
+
+def sign_macos_app(app_dir: Path) -> None:
+    if not shutil.which("codesign"):
+        return
+    try:
+        run(["codesign", "--force", "--sign", "-", str(app_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def write_macos_icns(icon_source: Path, icns: Path) -> bool:
+    if not icon_source.exists() or not shutil.which("sips") or not shutil.which("iconutil"):
+        return False
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            iconset = Path(tmp) / "ApuanaMonitor.iconset"
+            iconset.mkdir()
+            for size in (16, 32, 128, 256, 512):
+                run(["sips", "-z", str(size), str(size), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                run(["sips", "-z", str(size * 2), str(size * 2), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}@2x.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
+
 def create_macos_icon(app_dir: Path) -> str:
     resources = app_dir / "Contents" / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
@@ -103,21 +228,92 @@ def create_macos_icon(app_dir: Path) -> str:
         return ""
 
     icns = resources / "ApuanaMonitor.icns"
-    if shutil.which("sips") and shutil.which("iconutil"):
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                iconset = Path(tmp) / "ApuanaMonitor.iconset"
-                iconset.mkdir()
-                for size in (16, 32, 128, 256, 512):
-                    run(["sips", "-z", str(size), str(size), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    run(["sips", "-z", str(size * 2), str(size * 2), str(icon_source), "--out", str(iconset / f"icon_{size}x{size}@2x.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return "ApuanaMonitor.icns"
-        except Exception:
-            pass
+    if write_macos_icns(icon_source, icns):
+        return "ApuanaMonitor.icns"
 
     shutil.copy2(icon_source, resources / "ApuanaMonitor.png")
     return "ApuanaMonitor.png"
+
+
+def pyinstaller_available(python: Path) -> bool:
+    try:
+        subprocess.check_call(
+            [str(python), "-m", "PyInstaller", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def write_macos_pyinstaller_app(app_dir: Path) -> bool:
+    python = venv_python()
+    if not python.exists() or not pyinstaller_available(python):
+        return False
+
+    icon_source = APP_ICON_PNG if APP_ICON_PNG.exists() else ICON_PNG
+
+    with tempfile.TemporaryDirectory(prefix="apuana-monitor-build-") as tmp:
+        tmp_dir = Path(tmp)
+        entry = tmp_dir / "apuana_desktop_entry.py"
+        entry.write_text(
+            f"""import os
+import runpy
+from pathlib import Path
+
+ROOT = Path({c_string(ROOT)})
+os.environ["APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER"] = "1"
+os.chdir(ROOT)
+runpy.run_path(str(ROOT / "apuana" / "bin" / "desktop_launch.py"), run_name="__main__")
+""",
+            encoding="utf-8",
+        )
+
+        icon_args: list[str] = []
+        icon = tmp_dir / "ApuanaMonitor.icns"
+        if write_macos_icns(icon_source, icon):
+            icon_args = ["--icon", str(icon)]
+
+        dist = tmp_dir / "dist"
+        work = tmp_dir / "build"
+        spec = tmp_dir / "spec"
+        command = [
+            str(python),
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--windowed",
+            "--name",
+            LAUNCHER_NAME,
+            "--osx-bundle-identifier",
+            "local.apuana.monitor",
+            "--distpath",
+            str(dist),
+            "--workpath",
+            str(work),
+            "--specpath",
+            str(spec),
+            "--collect-submodules",
+            "webview",
+            *icon_args,
+            str(entry),
+        ]
+        try:
+            run(command)
+        except Exception:
+            return False
+
+        built_app = dist / f"{LAUNCHER_NAME}.app"
+        if not built_app.exists():
+            return False
+
+        if app_dir.exists():
+            shutil.rmtree(app_dir)
+        shutil.copytree(built_app, app_dir)
+        sign_macos_app(app_dir)
+        os.utime(app_dir, None)
+        return True
 
 
 def macos_launcher_is_current(app_dir: Path) -> bool:
@@ -128,6 +324,15 @@ def macos_launcher_is_current(app_dir: Path) -> bool:
     icon = contents / "Resources" / "ApuanaMonitor.icns"
     required = (executable, info, pkg, icon)
     if not all(path.exists() for path in required):
+        return False
+    try:
+        info_text = info.read_text(encoding="utf-8", errors="ignore")
+        if "LSUIElement" in info_text:
+            return False
+        if shutil.which("clang") or shutil.which("cc"):
+            if executable.read_bytes().startswith(b"#!"):
+                return False
+    except Exception:
         return False
 
     icon_source = APP_ICON_PNG if APP_ICON_PNG.exists() else ICON_PNG
@@ -144,6 +349,9 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
     if app_dir.exists() and macos_launcher_is_current(app_dir):
         return app_dir
 
+    if write_macos_pyinstaller_app(app_dir):
+        return app_dir
+
     if app_dir.exists():
         shutil.rmtree(app_dir)
 
@@ -154,7 +362,8 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
     resources.mkdir(parents=True, exist_ok=True)
 
     executable = macos / LAUNCHER_NAME
-    write_text_executable(executable, python_launcher_script())
+    if not write_macos_native_executable(executable):
+        write_text_executable(executable, python_launcher_script())
     icon_file = create_macos_icon(app_dir)
     icon_name = Path(icon_file).stem if icon_file else ""
     icon_keys = (
@@ -173,11 +382,11 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
   <key>CFBundleIdentifier</key><string>local.apuana.monitor</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   {icon_keys}
-  <key>LSUIElement</key><true/>
 </dict>
 </plist>
 """, encoding="utf-8")
     (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
+    sign_macos_app(app_dir)
     os.utime(app_dir, None)
     return app_dir
 

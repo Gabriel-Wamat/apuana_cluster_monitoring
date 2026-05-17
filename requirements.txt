@@ -1,3 +1,4 @@
 paramiko>=3.4,<6
 keyring>=25,<26
 pywebview>=5,<6
+pyinstaller>=6,<7

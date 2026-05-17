@@ -13,6 +13,7 @@
   <a href="https://www.paramiko.org/"><img src="https://img.shields.io/badge/Paramiko-SSH-2F6DB3?style=flat" alt="Paramiko SSH"></a>
   <a href="https://pypi.org/project/keyring/"><img src="https://img.shields.io/badge/Keyring-OS%20Credential%20Store-6A5ACD?style=flat" alt="Keyring credential store"></a>
   <a href="https://pywebview.flowrl.com/"><img src="https://img.shields.io/badge/pywebview-Native%20Window-14C77B?style=flat" alt="pywebview native window"></a>
+  <a href="https://pyinstaller.org/"><img src="https://img.shields.io/badge/PyInstaller-App%20Bundle-0F172A?style=flat" alt="PyInstaller app bundle"></a>
   <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JS-F7DF1E?style=flat&logo=javascript&logoColor=black" alt="HTML CSS JavaScript">
   <img src="https://img.shields.io/badge/SLURM-Apuana%20Cluster-18A999?style=flat" alt="SLURM Apuana Cluster">
   <img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow?style=flat" alt="PolyForm Noncommercial License">
@@ -22,7 +23,7 @@
 
 ## Motivação
 
-O **Apuana Monitor** foi desenvolvido para facilitar o acompanhamento e gerenciamento de atividades no cluster Apuana do CIN-UFPE de forma mais prática e organizada. A rotina de verificar filas, jobs, GPUs, logs e arquivos remotos normalmente exige múltiplos comandos e conexões manuais, o que pode tornar o fluxo de trabalho desafiador e pouco intuitivo, principalmente durante desenvolvimento, depuração e execução de experimentos.
+O **Apuana Monitor** foi desenvolvido para facilitar o acompanhamento e gerenciamento de atividades no cluster Apuana do CIn/UFPE de forma mais prática e organizada. A rotina de verificar filas, jobs, GPUs, logs e arquivos remotos normalmente exige múltiplos comandos e conexões manuais, o que pode tornar o fluxo de trabalho desafiador e pouco intuitivo, principalmente durante desenvolvimento, depuração e execução de experimentos.
 
 O projeto reúne essas operações em uma interface local simples, permitindo acompanhar o estado do cluster, acessar logs e gerenciar arquivos com maior praticidade. Essa iniciativa visa fornecer uma ferramenta de apoio que torne o uso do ambiente mais direto e eficiente, preservando o fluxo operacional e as ferramentas nativas do ambiente.
 
@@ -38,13 +39,13 @@ O projeto reúne essas operações em uma interface local simples, permitindo ac
 - abre logs `.out` e `.err`
 - navega por arquivos remotos em `/home/CIN/<usuario>`
 - faz upload e download por sessão SSH autenticada
-- cria um atalho **Apuana Monitor** na Área de Trabalho na primeira execução
+- cria um app/atalho **Apuana Monitor** na Área de Trabalho na primeira execução
 
 ## Requisitos
 
 - Python 3.9+
 - conta SSH ativa no Apuana
-- VPN/rede com acesso aos hosts do CIn(obrigatório):
+- VPN/rede com acesso aos hosts do CIn (obrigatório)
 
 O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e fallback para o Python do sistema. Quem não usa gerenciador de versões precisa apenas manter Python 3.9+ instalado.
 
@@ -69,11 +70,13 @@ No Windows:
 run.bat
 ```
 
-Na primeira execução, o script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário, cria o atalho **Apuana Monitor** na Área de Trabalho e abre:
+Na primeira execução, o script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário, prepara o app/atalho **Apuana Monitor** na Área de Trabalho e abre:
 
 ```text
 http://127.0.0.1:8501/
 ```
+
+No macOS, quando o ambiente permite, esse app é empacotado com PyInstaller para aparecer como **Apuana Monitor** no Dock, com nome e ícone próprios. No Linux e Windows, o projeto cria launchers nativos do sistema e mantém fallback para o navegador padrão quando uma janela nativa não estiver disponível.
 
 ## Próximas execuções
 
@@ -81,7 +84,15 @@ http://127.0.0.1:8501/
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Ícone do app Apuana Monitor" width="96">
 </p>
 
-Depois da primeira execução, basta abrir o atalho **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre uma janela nativa do app, sem precisar abrir IDE ou terminal. Se o sistema não tiver backend gráfico compatível para a janela nativa, o launcher abre o navegador padrão como fallback.
+Depois da primeira execução, basta abrir o **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre a interface sem precisar abrir IDE ou terminal. Se o app já estiver rodando, o launcher reaproveita a sessão local.
+
+Logs de inicialização ficam no diretório padrão do sistema:
+
+```text
+macOS: ~/Library/Logs/Apuana Monitor/
+Windows: %LOCALAPPDATA%\Apuana Monitor\logs\
+Linux: ~/.cache/apuana-monitor/
+```
 
 ## Login e segurança
 
