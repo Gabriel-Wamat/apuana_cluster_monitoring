@@ -101,20 +101,23 @@ def create_macos_icon(app_dir: Path) -> str:
             with tempfile.TemporaryDirectory() as tmp:
                 iconset = Path(tmp) / "ApuanaMonitor.iconset"
                 iconset.mkdir()
-                for size in (16, 32, 64, 128, 256, 512):
+                for size in (16, 32, 128, 256, 512):
                     run(["sips", "-z", str(size), str(size), str(ICON_PNG), "--out", str(iconset / f"icon_{size}x{size}.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     run(["sips", "-z", str(size * 2), str(size * 2), str(ICON_PNG), "--out", str(iconset / f"icon_{size}x{size}@2x.png")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return "ApuanaMonitor"
+                return "ApuanaMonitor.icns"
         except Exception:
             pass
 
     shutil.copy2(ICON_PNG, resources / "ApuanaMonitor.png")
-    return ""
+    return "ApuanaMonitor.png"
 
 
 def ensure_macos_launcher(target_dir: Path) -> Path:
     app_dir = target_dir / f"{LAUNCHER_NAME}.app"
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
+
     contents = app_dir / "Contents"
     macos = contents / "MacOS"
     resources = contents / "Resources"
@@ -123,8 +126,14 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
 
     executable = macos / LAUNCHER_NAME
     write_text_executable(executable, python_launcher_script())
-    icon_name = create_macos_icon(app_dir)
-    icon_key = f"<key>CFBundleIconFile</key><string>{icon_name}</string>" if icon_name else ""
+    icon_file = create_macos_icon(app_dir)
+    icon_name = Path(icon_file).stem if icon_file else ""
+    icon_keys = (
+        f"<key>CFBundleIconFile</key><string>{icon_file}</string>\n"
+        f"  <key>CFBundleIconName</key><string>{icon_name}</string>"
+        if icon_file
+        else ""
+    )
     (contents / "Info.plist").write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -134,11 +143,13 @@ def ensure_macos_launcher(target_dir: Path) -> Path:
   <key>CFBundleExecutable</key><string>{LAUNCHER_NAME}</string>
   <key>CFBundleIdentifier</key><string>local.apuana.monitor</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  {icon_key}
+  {icon_keys}
   <key>LSUIElement</key><true/>
 </dict>
 </plist>
 """, encoding="utf-8")
+    (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
+    os.utime(app_dir, None)
     return app_dir
 
 
