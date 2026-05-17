@@ -51,16 +51,6 @@ O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e 
 
 ## Rodar pela primeira vez
 
-### Opção 1: app pronto para macOS
-
-<p align="center">
-  <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
-</p>
-
-Baixe o pacote macOS mais recente em [GitHub Releases](https://github.com/Gabriel-Wamat/apuana_cluster_monitoring/releases/latest), extraia o `.zip` e abra **Apuana Monitor.app**.
-Obs: expansão para outros SOs em andamento.
-### Opção 2: a partir do código
-
 Clone o projeto e entre na pasta:
 
 ```bash
@@ -68,13 +58,33 @@ git clone <repository-url>
 cd apuana_cluster_monitoring
 ```
 
-No macOS ou Linux:
+### macOS
+
+<p align="center">
+  <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
+</p>
+
+Por enquanto, o app macOS deve ser gerado na própria máquina do usuário. Isso evita distribuir um pacote sem notarização da Apple e mantém o fluxo mais transparente.
 
 ```bash
 ./run.sh
 ```
 
-No Windows:
+Na primeira execução, o projeto instala as dependências locais, usa PyInstaller quando disponível e cria **Apuana Monitor.app** na Área de Trabalho.
+
+Se quiser apenas preparar o app sem abrir a interface:
+
+```bash
+python run.py --prepare-only
+```
+
+### Linux
+
+```bash
+./run.sh
+```
+
+### Windows
 
 ```bat
 run.bat
