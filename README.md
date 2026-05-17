@@ -12,6 +12,14 @@
 
 O servidor roda apenas na máquina do usuário, em `127.0.0.1`, e abre uma sessão SSH com o Apuana somente depois do login no navegador. Nenhuma senha é salva no repositório.
 
+## Motivação
+
+O **Apuana Monitor** nasceu para tornar o uso do cluster Apuana mais simples, direto e acessível para estudantes, pesquisadores e pessoas vinculadas ao CIn/UFPE. Embora o Apuana seja uma infraestrutura essencial para experimentos, disciplinas, pesquisa e desenvolvimento em computação, o acesso cotidiano ao cluster ainda pode exigir familiaridade com terminal, comandos SLURM, navegação remota por SSH, leitura manual de logs e acompanhamento constante de filas e recursos.
+
+A proposta deste projeto é reduzir essa barreira sem esconder o funcionamento do cluster. Ele oferece uma interface local, segura e organizada para acompanhar jobs, partições, GPUs, arquivos remotos, logs e transferências, ajudando o usuário a entender melhor o estado do ambiente antes de executar, depurar ou recuperar seus experimentos. Em vez de substituir o aprendizado sobre o Apuana, o monitor serve como uma camada de apoio para que esse aprendizado aconteça com menos atrito e mais clareza.
+
+Na prática, o Apuana Monitor ajuda quem está começando a usar o cluster e também quem já usa com frequência: evita consultas repetitivas, diminui erros operacionais, centraliza informações importantes e torna mais confortável acompanhar execuções longas. O objetivo é que qualquer pessoa autorizada no Apuana consiga abrir o projeto, fazer login com sua própria conta do CIn/UFPE e trabalhar com mais autonomia, sem depender de configurações específicas de uma máquina ou de um usuário.
+
 ## Rodar
 
 Requisitos:
