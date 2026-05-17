@@ -51,6 +51,12 @@ O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e 
 
 ## Rodar pela primeira vez
 
+### Opção 1: app pronto para macOS
+
+Baixe o pacote macOS mais recente em [GitHub Releases](https://github.com/Gabriel-Wamat/apuana_cluster_monitoring/releases/latest), extraia o `.zip` e abra **Apuana Monitor.app**.
+
+### Opção 2: a partir do código
+
 Clone o projeto e entre na pasta:
 
 ```bash

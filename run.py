@@ -256,24 +256,15 @@ def write_macos_pyinstaller_app(app_dir: Path) -> bool:
 
     with tempfile.TemporaryDirectory(prefix="apuana-monitor-build-") as tmp:
         tmp_dir = Path(tmp)
-        entry = tmp_dir / "apuana_desktop_entry.py"
-        entry.write_text(
-            f"""import os
-import runpy
-from pathlib import Path
-
-ROOT = Path({c_string(ROOT)})
-os.environ["APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER"] = "1"
-os.chdir(ROOT)
-runpy.run_path(str(ROOT / "apuana" / "bin" / "desktop_launch.py"), run_name="__main__")
-""",
-            encoding="utf-8",
-        )
-
         icon_args: list[str] = []
         icon = tmp_dir / "ApuanaMonitor.icns"
         if write_macos_icns(icon_source, icon):
             icon_args = ["--icon", str(icon)]
+
+        data_args = [
+            "--add-data",
+            f"{DASHBOARD_DIR / 'static'}:apuana/dashboard/static",
+        ]
 
         dist = tmp_dir / "dist"
         work = tmp_dir / "build"
@@ -294,10 +285,19 @@ runpy.run_path(str(ROOT / "apuana" / "bin" / "desktop_launch.py"), run_name="__m
             str(work),
             "--specpath",
             str(spec),
+            "--paths",
+            str(DASHBOARD_DIR),
             "--collect-submodules",
             "webview",
+            "--hidden-import",
+            "server.__main__",
+            "--hidden-import",
+            "server.http",
+            "--hidden-import",
+            "server.slurm",
+            *data_args,
             *icon_args,
-            str(entry),
+            str(DESKTOP_LAUNCHER),
         ]
         try:
             run(command)

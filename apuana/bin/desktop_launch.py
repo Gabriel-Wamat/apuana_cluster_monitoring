@@ -12,18 +12,23 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import webbrowser
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+FROZEN = bool(getattr(sys, "frozen", False))
+BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+ROOT = BUNDLE_ROOT if FROZEN else Path(__file__).resolve().parents[2]
 DASHBOARD_DIR = ROOT / "apuana" / "dashboard"
 APP_ICON_PNG = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana-app-icon.png"
 REQUIREMENTS = ROOT / "requirements.txt"
 VENV_DIR = ROOT / ".venv"
 MARKER = VENV_DIR / ".apuana-monitor-deps.json"
+if str(DASHBOARD_DIR) not in sys.path:
+    sys.path.insert(0, str(DASHBOARD_DIR))
 
 
 def log_file() -> Path:
@@ -58,6 +63,8 @@ def requirements_hash() -> str:
 
 
 def deps_are_ready() -> bool:
+    if FROZEN:
+        return True
     python = venv_python()
     if not python.exists():
         return False
@@ -148,6 +155,9 @@ setTimeout(check,250);
 
 
 def start_server(port: int) -> subprocess.Popen:
+    if FROZEN:
+        raise RuntimeError("frozen app uses start_bundled_server")
+
     env = os.environ.copy()
     env["SLURM_MONITOR_PORT"] = str(port)
     try:
@@ -166,6 +176,33 @@ def start_server(port: int) -> subprocess.Popen:
     else:
         kwargs["start_new_session"] = True
     return subprocess.Popen([str(venv_python()), "-m", "server"], **kwargs)
+
+
+class BundledServerProcess:
+    def __init__(self, thread: threading.Thread) -> None:
+        self.thread = thread
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        return None if self.thread.is_alive() else self.returncode or 0
+
+
+def start_bundled_server(port: int) -> BundledServerProcess:
+    os.environ["SLURM_MONITOR_PORT"] = str(port)
+    os.environ["APUANA_MONITOR_DASHBOARD_ROOT"] = str(DASHBOARD_DIR)
+
+    def run_server() -> None:
+        try:
+            from server.__main__ import main as server_main
+
+            server_main()
+        except Exception:
+            log(traceback.format_exc())
+            raise
+
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+    return BundledServerProcess(thread)
 
 
 def bootstrap_command() -> list[str]:
@@ -244,7 +281,7 @@ def main() -> int:
             return code
 
     log("starting local server")
-    process = start_server(port)
+    process = start_bundled_server(port) if FROZEN else start_server(port)
     if wait_for_local_port(port, 0.32):
         log("server became ready quickly; opening dashboard")
         open_dashboard(url)
