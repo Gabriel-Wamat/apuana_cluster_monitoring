@@ -31,7 +31,7 @@ Requisitos:
 ```bash
 git clone <repository-url>
 cd apuana_cluster_monitoring
-python run.py
+./run.sh
 ```
 
 O script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário e inicia:
@@ -48,18 +48,18 @@ Na primeira execução, o `run.py` também cria um atalho **Apuana Monitor** na 
 ## Opções
 
 ```bash
-python run.py --port 8520
-python run.py --host slurm-client1.cin.ufpe.br
-python run.py --transfer-host slurm-client1.cin.ufpe.br
-python run.py --no-browser
+./run.sh --port 8520
+./run.sh --host slurm-client1.cin.ufpe.br
+./run.sh --transfer-host slurm-client1.cin.ufpe.br
+./run.sh --no-browser
 ```
 
 Também é possível configurar por ambiente:
 
 ```bash
-SLURM_MONITOR_PORT=8520 python run.py
-SLURM_MONITOR_SSH_HOST=slurm-client1.cin.ufpe.br python run.py
-SLURM_MONITOR_TRANSFER_HOST=slurm-client1.cin.ufpe.br python run.py
+SLURM_MONITOR_PORT=8520 ./run.sh
+SLURM_MONITOR_SSH_HOST=slurm-client1.cin.ufpe.br ./run.sh
+SLURM_MONITOR_TRANSFER_HOST=slurm-client1.cin.ufpe.br ./run.sh
 ```
 
 ## O que inclui
@@ -80,6 +80,7 @@ Você pode estudar, usar, modificar e contribuir para fins não comerciais, mant
 
 ```text
 run.py
+run.sh
 requirements.txt
 apuana/dashboard/
   run.sh
