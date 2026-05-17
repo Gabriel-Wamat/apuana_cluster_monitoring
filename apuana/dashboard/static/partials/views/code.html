@@ -114,16 +114,16 @@
       </div>
     </div>
 
-    <div class="remote-modal code-help-modal" id="code-help-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="code-help-title">
+    <div class="remote-modal code-help-modal" id="code-help-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Apuana guide">
       <div class="remote-modal-card code-help-card">
         <div class="code-help-header">
-          <div>
-            <h3 id="code-help-title">Apuana guide</h3>
-            <p>SLURM, environments, files, transfer and cluster diagnostics.</p>
-          </div>
           <div class="code-help-header-actions" role="group" aria-label="Help view mode">
-            <button class="code-help-mode active" id="code-help-preview-mode" type="button">Preview</button>
-            <button class="code-help-mode" id="code-help-edit-mode" type="button">Edit</button>
+            <button class="code-help-mode active" id="code-help-preview-mode" type="button" aria-label="Preview" title="Preview" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="code-help-mode" id="code-help-edit-mode" type="button" aria-label="Edit" title="Edit" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
             <button class="icon-btn" id="code-help-close" type="button" aria-label="Close help" title="Close help">
               <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>

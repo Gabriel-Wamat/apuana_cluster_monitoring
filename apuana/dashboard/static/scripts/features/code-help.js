@@ -79,6 +79,8 @@ function setCodeHelpMode(mode) {
   if (editor) editor.classList.toggle('hidden', !isEdit);
   if (previewBtn) previewBtn.classList.toggle('active', !isEdit);
   if (editBtn) editBtn.classList.toggle('active', isEdit);
+  if (previewBtn) previewBtn.setAttribute('aria-pressed', String(!isEdit));
+  if (editBtn) editBtn.setAttribute('aria-pressed', String(isEdit));
   if (isEdit && editor) setTimeout(() => editor.focus(), 0);
 }
 
