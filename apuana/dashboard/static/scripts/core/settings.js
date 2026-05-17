@@ -60,11 +60,26 @@ function closeUserSettings() {
   modal.setAttribute('aria-hidden', 'true');
 }
 
+async function logoutFromUserSettings() {
+  const button = $('user-settings-logout');
+  if (button) button.disabled = true;
+  try {
+    await fetch('/api/auth/logout', {method: 'POST'});
+  } catch (_) {
+    // Local state is still cleared so the UI returns to the login screen.
+  } finally {
+    closeUserSettings();
+    forceAuthRequired();
+    if (button) button.disabled = false;
+  }
+}
+
 function initUserSettings() {
   renderUserSettings();
   $('sidebar-settings-btn')?.addEventListener('click', openUserSettings);
   $('user-settings-close')?.addEventListener('click', closeUserSettings);
   $('user-settings-dismiss')?.addEventListener('click', closeUserSettings);
+  $('user-settings-logout')?.addEventListener('click', logoutFromUserSettings);
   $('user-settings-modal')?.addEventListener('click', ev => {
     if (ev.target === $('user-settings-modal')) closeUserSettings();
   });

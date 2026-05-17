@@ -102,7 +102,7 @@ body.auth-required .main,body.auth-required .sb{filter:blur(2px);pointer-events:
 .settings-field strong{display:block;min-width:0;font:700 13px/1.35 'JetBrains Mono',monospace;color:var(--t);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .settings-field-wide{grid-column:1/-1}
-.settings-actions{display:flex;justify-content:flex-end;margin-top:18px}
+.settings-actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px}
 @media(max-width:640px){.settings-modal{padding:12px}.settings-card{padding:18px}.settings-grid{grid-template-columns:1fr}}
 
 /* sidebar */
@@ -944,6 +944,8 @@ body[data-view="code"] #view-code.terminal-open .code-workspace{height:clamp(360
 .mini-btn.primary:hover{background:var(--btn-primary-bg-hover);border-color:var(--btn-primary-border-hover);filter:brightness(1.02)}
 .mini-btn.danger{background:rgba(240,85,108,.12);color:var(--danger);border-color:rgba(240,85,108,.34)}
 .mini-btn.danger:hover{background:var(--danger);color:var(--t);border-color:var(--danger)}
+.mini-btn.subtle-danger{background:transparent;color:var(--t3);border-color:rgba(240,85,108,.24)}
+.mini-btn.subtle-danger:hover{background:rgba(240,85,108,.1);color:var(--danger);border-color:rgba(240,85,108,.42)}
 .btn-with-icon{display:inline-flex;align-items:center;justify-content:center;gap:7px}
 .btn-with-icon svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
