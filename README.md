@@ -88,6 +88,10 @@ O servidor roda apenas na máquina do usuário, em `127.0.0.1`, e só abre uma s
 
 Faça login com seu usuário e senha SSH do Apuana. Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais. Nenhuma senha é salva no repositório.
 
+<p align="center">
+  <img src="apuana/dashboard/static/assets/readme-login.png" alt="Tela de login do Apuana Monitor" width="780">
+</p>
+
 ## Opções
 
 ```bash
