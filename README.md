@@ -2,7 +2,7 @@
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor" width="136">
 </p>
 
-<h1 align="center">Apuana Monitor</h1>
+<h1 align="center">Apuana Monitor - CIn UFPE</h1>
 
 <p align="center">
   Dashboard local para acompanhar filas, jobs, GPUs, logs, arquivos remotos e transferências no cluster Apuana.
