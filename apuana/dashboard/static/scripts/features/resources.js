@@ -37,12 +37,24 @@ function cleanValue(value) {
   return s && s !== '(null)' && s !== 'N/A' ? s : '-';
 }
 
-function jobMetric(label, value, sub, tone) {
-  return `<div class="job-metric">
+function jobMetric(label, value, sub, tone, options = {}) {
+  const extraClass = options.className ? ` ${options.className}` : '';
+  const subClass = options.subClass ? ` ${options.subClass}` : '';
+  const detail = options.subHtml != null ? options.subHtml : esc(cleanValue(sub));
+  return `<div class="job-metric${extraClass}">
     <span>${esc(label)}</span>
     <strong class="${tone || ''}">${esc(cleanValue(value))}</strong>
-    <small>${esc(cleanValue(sub))}</small>
+    <small class="job-metric-detail${subClass}">${detail}</small>
   </div>`;
+}
+
+function tresMetricChips(value) {
+  const parts = cleanValue(value)
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  const items = parts.length ? parts : ['-'];
+  return items.map(part => `<span class="job-metric-chip">${esc(part)}</span>`).join('');
 }
 
 function jobField(label, value, mono) {
@@ -94,7 +106,11 @@ function renderJobInfo(data) {
       ${jobMetric('Runtime', s.runtime, `limit ${cleanValue(s.time_limit)}`, 'metric-ok')}
       ${jobMetric('CPUs', r.cpus || '-', `${r.tasks || '-'} task(s), ${r.cpus_per_task || '-'} per task`, 'metric-ok')}
       ${jobMetric('Memory', r.memory || '-', `${r.nodes || '-'} node(s)`, 'metric-info')}
-      ${jobMetric('GPUs', r.gpus || 0, r.tres_per_node || r.tres || '-', gpuTone)}
+      ${jobMetric('GPUs', r.gpus || 0, r.tres_per_node || r.tres || '-', gpuTone, {
+        className: 'job-metric--gpu',
+        subClass: 'job-metric-detail--chips',
+        subHtml: tresMetricChips(r.tres_per_node || r.tres || '-'),
+      })}
     </div>
 
     <div class="job-sections">
