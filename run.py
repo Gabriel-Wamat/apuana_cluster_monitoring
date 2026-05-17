@@ -77,7 +77,6 @@ def python_launcher_script() -> str:
 set -euo pipefail
 cd {root}
 export APUANA_MONITOR_SKIP_DESKTOP_LAUNCHER=1
-export APUANA_MONITOR_DESKTOP_LAUNCH=1
 if [[ -x ".venv/bin/python" ]]; then
   PY=".venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
@@ -90,7 +89,7 @@ else
   fi
   exit 1
 fi
-exec "$PY" {run_py}
+exec "$PY" {run_py} --desktop-launch
 """
 
 
@@ -192,7 +191,7 @@ def ensure_linux_launcher(target_dir: Path) -> Path:
 Type=Application
 Name={LAUNCHER_NAME}
 Comment=Open the local Apuana Monitor dashboard
-Exec=/bin/sh -c "cd {root} && export APUANA_MONITOR_DESKTOP_LAUNCH=1 && exec {python} {run_py}"
+Exec=/bin/sh -c "cd {root} && exec {python} {run_py} --desktop-launch"
 Icon={icon}
 Terminal=false
 Categories=Utility;
@@ -214,8 +213,7 @@ If Not fso.FileExists(python) Then
   python = "pythonw"
 End If
 shell.CurrentDirectory = root
-shell.Environment("PROCESS")("APUANA_MONITOR_DESKTOP_LAUNCH") = "1"
-command = Chr(34) & python & Chr(34) & " " & Chr(34) & root & "\\run.py" & Chr(34)
+command = Chr(34) & python & Chr(34) & " " & Chr(34) & root & "\\run.py" & Chr(34) & " --desktop-launch"
 shell.Run command, 0, False
 """, encoding="utf-8")
     return launcher
@@ -446,7 +444,7 @@ root.mainloop()
     except Exception:
         return start_browser_loading_notice(url)
 
-    deadline = time.monotonic() + 0.8
+    deadline = time.monotonic() + 0.18
     while time.monotonic() < deadline:
         if ready_file.exists():
             break
@@ -485,19 +483,15 @@ def ensure_venv() -> Path:
 
 
 def deps_are_ready(python: Path, expected_hash: str) -> bool:
+    if not python.exists():
+        return False
     try:
         marker = json.loads(MARKER.read_text(encoding="utf-8"))
     except Exception:
         return False
     if marker.get("requirements_sha256") != expected_hash:
         return False
-    check = subprocess.run(
-        [str(python), "-c", "import paramiko, keyring"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return check.returncode == 0
+    return True
 
 
 def ensure_deps(python: Path) -> None:
@@ -581,51 +575,82 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default=os.environ.get("SLURM_MONITOR_SSH_HOST", ""), help="Apuana SSH host")
     parser.add_argument("--transfer-host", default=os.environ.get("SLURM_MONITOR_TRANSFER_HOST", ""), help="host used in transfer commands")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
+    parser.add_argument("--desktop-launch", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    url = f"http://127.0.0.1:{args.port}/"
-    close_loading_notice = start_loading_notice(
-        os.environ.get("APUANA_MONITOR_DESKTOP_LAUNCH") == "1" and not args.no_browser,
-        url,
-    )
+def server_env(args: argparse.Namespace) -> dict[str, str]:
+    env = os.environ.copy()
+    env["SLURM_MONITOR_PORT"] = str(args.port)
+    if args.host:
+        env["SLURM_MONITOR_SSH_HOST"] = args.host
+    if args.transfer_host:
+        env["SLURM_MONITOR_TRANSFER_HOST"] = args.transfer_host
+    return env
+
+
+def start_server_process(python: Path, args: argparse.Namespace) -> subprocess.Popen:
+    return subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=server_env(args))
+
+
+def desktop_python() -> Path:
+    python = venv_python()
+    if python.exists() and deps_are_ready(python, requirements_hash()):
+        return python
+    python = ensure_venv()
+    ensure_deps(python)
+    return python
+
+
+def run_desktop_launch(args: argparse.Namespace, url: str) -> int:
+    if local_port_is_open(str(args.port)):
+        print(f"[apuana] dashboard already running at {url}")
+        if not args.no_browser:
+            open_url(url)
+        return 0
+
+    close_loading_notice = start_loading_notice(not args.no_browser, url)
 
     def finish_loading_notice() -> None:
         if close_loading_notice:
             close_loading_notice()
 
     try:
-        if local_port_is_open(str(args.port)):
-            print(f"[apuana] dashboard already running at {url}")
-            if not args.no_browser:
-                open_url(url)
-                finish_loading_notice()
-            return 0
-
-        launcher = ensure_desktop_launcher()
-        if launcher:
-            print(f"[apuana] desktop launcher ready: {launcher}")
-        python = ensure_venv()
-        ensure_deps(python)
-
-        env = os.environ.copy()
-        env["SLURM_MONITOR_PORT"] = str(args.port)
-        if args.host:
-            env["SLURM_MONITOR_SSH_HOST"] = args.host
-        if args.transfer_host:
-            env["SLURM_MONITOR_TRANSFER_HOST"] = args.transfer_host
-
+        python = desktop_python()
         print(f"[apuana] starting dashboard at {url}")
-        process = subprocess.Popen([str(python), "-m", "server"], cwd=str(DASHBOARD_DIR), env=env)
+        process = start_server_process(python, args)
         if not args.no_browser and wait_for_local_port(str(args.port)):
             open_url(url)
             finish_loading_notice()
-
         return process.wait()
     finally:
         finish_loading_notice()
+
+
+def main() -> int:
+    args = parse_args()
+    url = f"http://127.0.0.1:{args.port}/"
+    if args.desktop_launch:
+        return run_desktop_launch(args, url)
+
+    if local_port_is_open(str(args.port)):
+        print(f"[apuana] dashboard already running at {url}")
+        if not args.no_browser:
+            open_url(url)
+        return 0
+
+    launcher = ensure_desktop_launcher()
+    if launcher:
+        print(f"[apuana] desktop launcher ready: {launcher}")
+    python = ensure_venv()
+    ensure_deps(python)
+
+    print(f"[apuana] starting dashboard at {url}")
+    process = start_server_process(python, args)
+    if not args.no_browser and wait_for_local_port(str(args.port)):
+        open_url(url)
+
+    return process.wait()
 
 
 if __name__ == "__main__":
