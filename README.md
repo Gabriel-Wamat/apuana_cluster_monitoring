@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apuana/dashboard/static/assets/apuana-logo-transparent.png" alt="Apuana Monitor" width="120">
+  <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor" width="136">
 </p>
 
 <h1 align="center">Apuana Monitor</h1>
@@ -52,6 +52,10 @@ O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e 
 ## Rodar pela primeira vez
 
 ### Opção 1: app pronto para macOS
+
+<p align="center">
+  <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
+</p>
 
 Baixe o pacote macOS mais recente em [GitHub Releases](https://github.com/Gabriel-Wamat/apuana_cluster_monitoring/releases/latest), extraia o `.zip` e abra **Apuana Monitor.app**.
 
