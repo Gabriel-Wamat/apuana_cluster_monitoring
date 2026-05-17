@@ -62,6 +62,10 @@ http://127.0.0.1:8501/
 
 ## Próximas execuções
 
+<p align="center">
+  <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Ícone do app Apuana Monitor" width="96">
+</p>
+
 Depois da primeira execução, basta abrir o atalho **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre o navegador padrão do sistema, sem precisar abrir IDE ou terminal.
 
 ## Login e segurança
