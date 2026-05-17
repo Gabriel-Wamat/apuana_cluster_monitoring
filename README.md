@@ -35,6 +35,8 @@ http://127.0.0.1:8501/
 Depois, faça login no navegador com seu usuário e senha SSH do Apuana.
 Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais.
 
+Na primeira execução, o `run.py` também cria um atalho **Apuana Monitor** na Área de Trabalho com a logo do projeto. Depois disso, basta abrir por esse atalho: ele inicia o servidor local em segundo plano e abre o navegador, sem precisar de IDE ou terminal.
+
 ## Opções
 
 ```bash
