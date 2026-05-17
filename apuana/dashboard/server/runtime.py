@@ -11,6 +11,15 @@ try:
 except Exception:  # pragma: no cover - optional dependency check at runtime
     paramiko = None
 
+try:
+    import keyring
+    from keyring.errors import KeyringError, PasswordDeleteError
+except Exception:  # pragma: no cover - optional desktop integration
+    keyring = None
+    KeyringError = Exception
+    PasswordDeleteError = Exception
+
+KEYRING_SERVICE = "Apuana Monitor"
 _session_lock = threading.Lock()
 _session: dict = {
     "token": "",
@@ -29,6 +38,57 @@ def _normalize_login(value: str) -> str:
     if not raw:
         return ""
     return raw.split("@", 1)[0]
+
+
+def _credential_account(login: str, host: str) -> str:
+    return f"{_normalize_login(login)}@{(host or SSH_HOST).strip() or SSH_HOST}"
+
+
+def _get_saved_password(login: str, host: str) -> tuple[str, str]:
+    if keyring is None:
+        return "", "keyring is not installed"
+    login = _normalize_login(login)
+    if not login:
+        return "", "login is required for keyring lookup"
+    try:
+        password = keyring.get_password(KEYRING_SERVICE, _credential_account(login, host)) or ""
+        return password, ""
+    except KeyringError as exc:
+        return "", str(exc)
+    except Exception as exc:
+        return "", str(exc)
+
+
+def _save_password(login: str, host: str, password: str) -> tuple[bool, str]:
+    if keyring is None:
+        return False, "keyring is not installed"
+    login = _normalize_login(login)
+    if not login or not password:
+        return False, "login and password are required"
+    try:
+        keyring.set_password(KEYRING_SERVICE, _credential_account(login, host), password)
+        return True, ""
+    except KeyringError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _delete_saved_password(login: str, host: str) -> tuple[bool, str]:
+    if keyring is None:
+        return False, "keyring is not installed"
+    login = _normalize_login(login)
+    if not login:
+        return False, "login is required"
+    try:
+        keyring.delete_password(KEYRING_SERVICE, _credential_account(login, host))
+        return True, ""
+    except PasswordDeleteError:
+        return True, ""
+    except KeyringError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _session_public() -> dict:
@@ -264,6 +324,7 @@ def _run_with_stdin(cmd: list[str], data: bytes, timeout: int = 12) -> tuple[int
 
 def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> dict:
     last_error = ""
+    tried_keyring = False
     for host, login, label, target in _auto_ssh_candidates(preferred_login, preferred_host):
         client = None
         try:
@@ -321,10 +382,54 @@ def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> 
             }
         if err:
             last_error = err
+
+        if login:
+            tried_keyring = True
+            password, keyring_error = _get_saved_password(login, host)
+            if password:
+                try:
+                    client = _connect_ssh(host, login, password)
+                    stdin, stdout, stderr = client.exec_command("echo $HOME", timeout=6)
+                    _ = stdin, stderr
+                    home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/CIN/{login}"
+                    token = _set_session(
+                        login=login,
+                        password=password,
+                        host=host,
+                        client=client,
+                        home=home,
+                        auth_mode="keyring",
+                        ssh_target=target,
+                    )
+                    return {
+                        "ok": True,
+                        "token": token,
+                        "login": login,
+                        "username": login,
+                        "host": host,
+                        "home": home,
+                        "transfer_host": TRANSFER_HOST,
+                        "auth": f"system keyring ({label})",
+                        "credential_source": "keyring",
+                    }
+                except Exception as exc:
+                    last_error = str(exc)
+                    try:
+                        if client is not None:
+                            client.close()
+                    except Exception:
+                        pass
+            elif keyring_error and "required for keyring" not in keyring_error:
+                last_error = keyring_error
     return {
         "ok": False,
         "code": "ssh_auto_unavailable",
-        "error": "Não consegui autenticar automaticamente no Apuana. Verifique a VPN ou configure seu SSH local.",
+        "error": (
+            "Não consegui autenticar automaticamente no Apuana. Verifique a VPN, configure seu SSH local "
+            "ou entre uma vez marcando 'Lembrar neste computador'."
+            if tried_keyring else
+            "Não consegui autenticar automaticamente no Apuana. Informe seu login e senha SSH."
+        ),
         "detail": last_error,
     }
 

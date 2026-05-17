@@ -24,6 +24,8 @@ from .runtime import (
     _auto_login_session,
     _clear_session,
     _connect_ssh,
+    _delete_saved_password,
+    _save_password,
     _normalize_login,
     _run,
     _session_public,
@@ -161,6 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json_body()
             login = _normalize_login(payload.get("login") or payload.get("email") or "")
             password = payload.get("password") or ""
+            remember = bool(payload.get("remember"))
             host = (payload.get("host") or SSH_HOST).strip() or SSH_HOST
 
             if not login:
@@ -182,6 +185,12 @@ class Handler(BaseHTTPRequestHandler):
 
             _terminal_close_active()
             token = _set_session(login=login, password=password, host=host, client=client, home=home)
+            credential_saved = False
+            credential_error = ""
+            if remember:
+                credential_saved, credential_error = _save_password(login, host, password)
+            else:
+                _delete_saved_password(login, host)
             self._json(
                 200,
                 {
@@ -192,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
                     "host": host,
                     "home": home,
                     "transfer_host": TRANSFER_HOST,
+                    "credential_saved": credential_saved,
+                    "credential_error": credential_error,
                 },
             )
             return

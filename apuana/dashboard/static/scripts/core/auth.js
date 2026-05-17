@@ -173,7 +173,7 @@ async function submitSshLogin() {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({login, password}),
+      body: JSON.stringify({login, password, remember}),
     });
     const body = await response.json();
     if (!response.ok || !body.ok) {
@@ -184,7 +184,11 @@ async function submitSshLogin() {
     }
     setAuthenticatedSession(body, {login, remember});
     showInitialLoader();
-    if (errorEl) errorEl.textContent = '';
+    if (errorEl) {
+      errorEl.textContent = remember && !body.credential_saved
+        ? (body.credential_error || 'Login realizado, mas não foi possível salvar a senha no cofre deste sistema.')
+        : '';
+    }
     await poll();
   } catch (err) {
     forceAuthRequired();

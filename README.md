@@ -33,6 +33,7 @@ http://127.0.0.1:8501/
 ```
 
 Depois, faça login no navegador com seu usuário e senha SSH do Apuana.
+Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais.
 
 ## Opções
 
