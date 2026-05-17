@@ -55,52 +55,58 @@ O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e 
 
 ## Rodar pela primeira vez
 
-Clone o projeto e entre na pasta:
+Primeiro, clone o projeto e entre na pasta:
 
 ```bash
 git clone <repository-url>
 cd apuana_cluster_monitoring
 ```
 
-### macOS
+Depois escolha uma das formas abaixo, de acordo com o seu sistema e preferência.
+
+### 1. macOS com app na Área de Trabalho
 
 <p align="center">
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
 </p>
 
-Por enquanto, o app macOS deve ser gerado na própria máquina do usuário. Isso evita distribuir um pacote sem notarização da Apple e mantém o fluxo mais transparente.
+Use esta opção se quiser gerar o **Apuana Monitor.app** localmente e abrir o projeto como um app comum. O pacote é criado na própria máquina do usuário, evitando distribuir um app macOS sem notarização da Apple.
 
 ```bash
 ./run.sh
 ```
 
-Na primeira execução, o projeto instala as dependências locais, usa PyInstaller quando disponível e cria **Apuana Monitor.app** na Área de Trabalho.
+Na primeira execução, o script cria `.venv`, instala as dependências, usa PyInstaller quando disponível e cria **Apuana Monitor.app** na Área de Trabalho. Depois disso, basta abrir o app pelo ícone.
 
-Se quiser apenas preparar o app sem abrir a interface:
+Para apenas preparar o app sem abrir a interface:
 
 ```bash
 python run.py --prepare-only
 ```
 
-### Linux
+### 2. Linux ou macOS pelo terminal
+
+Use esta opção se preferir rodar o servidor local diretamente pelo script, sem depender do app da Área de Trabalho.
 
 ```bash
 ./run.sh
 ```
 
-### Windows
+### 3. Windows
+
+No Windows, use o script `.bat`:
 
 ```bat
 run.bat
 ```
 
-Na primeira execução, o script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário, prepara o app/atalho **Apuana Monitor** na Área de Trabalho e abre:
+Em qualquer uma das opções, a primeira execução instala dependências apenas quando necessário e abre a interface local em:
 
 ```text
 http://127.0.0.1:8501/
 ```
 
-No macOS, quando o ambiente permite, esse app é empacotado com PyInstaller para aparecer como **Apuana Monitor** no Dock, com nome e ícone próprios. No Linux e Windows, o projeto cria launchers nativos do sistema e mantém fallback para o navegador padrão quando uma janela nativa não estiver disponível.
+No macOS, quando o ambiente permite, o app é empacotado com PyInstaller para aparecer como **Apuana Monitor** no Dock, com nome e ícone próprios. No Linux e Windows, o projeto cria launchers nativos do sistema e mantém fallback para o navegador padrão quando uma janela nativa não estiver disponível.
 
 ## Próximas execuções
 
@@ -108,7 +114,7 @@ No macOS, quando o ambiente permite, esse app é empacotado com PyInstaller para
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Ícone do app Apuana Monitor" width="96">
 </p>
 
-Depois da primeira execução, basta abrir o **Apuana Monitor** na Área de Trabalho. Ele inicia o servidor local em segundo plano e abre a interface sem precisar abrir IDE ou terminal. Se o app já estiver rodando, o launcher reaproveita a sessão local.
+Depois da primeira execução, você pode abrir o **Apuana Monitor** pela Área de Trabalho quando o app/atalho tiver sido criado, ou rodar novamente `./run.sh` no macOS/Linux e `run.bat` no Windows. Se o app já estiver rodando, o launcher reaproveita a sessão local.
 
 Logs de inicialização ficam no diretório padrão do sistema:
 
