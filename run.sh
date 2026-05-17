@@ -12,6 +12,7 @@ elif command -v python >/dev/null 2>&1 && python -c 'import sys; raise SystemExi
   PY="$(command -v python)"
 else
   echo "Python 3.9+ was not found."
+  echo "This repository includes .tool-versions for asdf/mise: python 3.12.12 with system fallback."
   echo "Install Python 3.9 or newer, then run this script again."
   exit 1
 fi

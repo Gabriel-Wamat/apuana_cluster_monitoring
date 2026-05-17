@@ -34,11 +34,19 @@ cd apuana_cluster_monitoring
 ./run.sh
 ```
 
+No Windows, use:
+
+```bat
+run.bat
+```
+
 O script cria `.venv`, instala as dependências do `requirements.txt` apenas quando necessário e inicia:
 
 ```text
 http://127.0.0.1:8501/
 ```
+
+O repositório inclui `.tool-versions` para `asdf`/`mise`, com Python 3.12.12 e fallback para o Python do sistema. Quem não usa gerenciador de versões pode simplesmente manter Python 3.9+ instalado.
 
 Depois, faça login no navegador com seu usuário e senha SSH do Apuana.
 Se marcar **Lembrar neste computador**, a senha é salva no cofre seguro do sistema operacional via `keyring` e usada apenas para abrir novas sessões SSH locais.
@@ -81,6 +89,7 @@ Você pode estudar, usar, modificar e contribuir para fins não comerciais, mant
 ```text
 run.py
 run.sh
+run.bat
 requirements.txt
 apuana/dashboard/
   run.sh
