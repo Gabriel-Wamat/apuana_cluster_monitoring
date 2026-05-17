@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">Apuana Monitor</h1>
+<h3 align="center">CIn-UFPE</h3>
 
 <p align="center">
   Dashboard local para acompanhar filas, jobs, GPUs, logs, arquivos remotos e transferências no cluster Apuana.
