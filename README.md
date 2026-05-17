@@ -59,6 +59,12 @@ SLURM_MONITOR_TRANSFER_HOST=slurm-client1.cin.ufpe.br python run.py
 - navegador de arquivos em `/home/CIN/<usuario>`
 - upload e download via sessão SSH autenticada
 
+## Licença
+
+Este projeto usa a **PolyForm Noncommercial License 1.0.0**.
+
+Você pode estudar, usar, modificar e contribuir para fins não comerciais, mantendo os créditos e avisos de licença. Uso comercial, revenda, redistribuição paga ou incorporação em produto/serviço comercial exige autorização prévia por escrito.
+
 ## Estrutura
 
 ```text
