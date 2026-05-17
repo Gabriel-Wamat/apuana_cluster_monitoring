@@ -70,7 +70,7 @@ Depois escolha uma das formas abaixo, de acordo com o seu sistema e preferência
   <img src="apuana/dashboard/static/assets/apuana-app-icon.png" alt="Apuana Monitor para macOS" width="108">
 </p>
 
-Use esta opção se quiser gerar o **Apuana Monitor.app** localmente e abrir o projeto como um app comum. O pacote é criado na própria máquina do usuário, evitando distribuir um app macOS sem notarização da Apple.
+Use esta opção se quiser gerar o **Apuana Monitor.app** localmente e abrir o projeto como um app comum. O pacote é criado na própria máquina do usuário.
 
 ```bash
 ./run.sh
