@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import platform
@@ -11,11 +12,9 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import traceback
-import webbrowser
 from pathlib import Path
 
 
@@ -90,37 +89,10 @@ def wait_for_local_port(port: int, timeout: float) -> bool:
     return local_port_is_open(port)
 
 
-def open_url(url: str) -> None:
-    system = platform.system().lower()
-    commands: list[list[str]] = []
-    if system == "darwin":
-        commands = [["open", url]]
-    elif system == "windows":
-        try:
-            os.startfile(url)  # type: ignore[attr-defined]
-            return
-        except Exception:
-            commands = [["cmd", "/c", "start", "", url]]
-    else:
-        commands = [["xdg-open", url], ["gio", "open", url], ["kde-open", url], ["sensible-browser", url]]
-
-    for command in commands:
-        if command[0] != "cmd" and not shutil.which(command[0]):
-            continue
-        try:
-            subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
-        except Exception:
-            continue
-    webbrowser.open(url)
-
-
-def write_loading_page(url: str) -> Path:
+def loading_page_html(status: str = "Preparando o servidor local.") -> str:
     logo = APP_ICON_PNG.resolve().as_uri() if APP_ICON_PNG.exists() else ""
     image = f'<img src="{logo}" alt="">' if logo else ""
-    page = Path(tempfile.gettempdir()) / f"apuana-monitor-loading-{os.getpid()}.html"
-    page.write_text(
-        f"""<!doctype html>
+    return f"""<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -137,21 +109,15 @@ p{{margin:10px 0 22px;color:#9aa7b3;line-height:1.45}}
 </style>
 </head>
 <body>
-<main>{image}<h1>Carregando Apuana Monitor</h1><p>Preparando o servidor local.</p><div class="spinner"></div></main>
-<script>
-const target = {json.dumps(url)};
-async function check(){{
-  try{{await fetch(target,{{mode:"no-cors",cache:"no-store"}}); window.location.replace(target);}}
-  catch(_){{setTimeout(check,500);}}
-}}
-setTimeout(check,250);
-</script>
+<main>{image}<h1>Carregando Apuana Monitor</h1><p>{status}</p><div class="spinner"></div></main>
 </body>
 </html>
-""",
-        encoding="utf-8",
-    )
-    return page
+"""
+
+
+def error_page_html(message: str) -> str:
+    safe_message = html.escape(message, quote=True)
+    return loading_page_html(safe_message).replace('<div class="spinner"></div>', "")
 
 
 def start_server(port: int) -> subprocess.Popen:
@@ -221,7 +187,32 @@ def delegate_to_bootstrap() -> int:
     return subprocess.call(bootstrap_command())
 
 
-def open_app_window(url: str) -> bool:
+def relaunch_with_venv_python() -> None:
+    if FROZEN:
+        return
+
+    python = venv_python()
+    if not python.exists():
+        return
+
+    try:
+        current = Path(sys.executable).resolve()
+        target = python.resolve()
+    except Exception:
+        current = Path(sys.executable)
+        target = python
+
+    if current == target:
+        return
+
+    log(f"relaunching desktop app with virtualenv python: {target}")
+    os.execv(str(python), [str(python), str(Path(__file__).resolve())])
+
+
+def open_app_window(url: str, port: int, wait_for_ready: bool = True) -> bool:
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
+
     try:
         import webview
     except Exception as exc:
@@ -239,62 +230,76 @@ def open_app_window(url: str) -> bool:
             except Exception as exc:
                 log(f"macOS app icon setup skipped: {exc}")
 
-        window = webview.create_window(
-            "Apuana Monitor",
-            url,
-            width=1280,
-            height=860,
-            min_size=(960, 640),
-            confirm_close=False,
-            background_color="#080d0a",
-        )
+        window_kwargs = {
+            "title": "Apuana Monitor",
+            "width": 1280,
+            "height": 860,
+            "min_size": (960, 640),
+            "confirm_close": False,
+            "background_color": "#080d0a",
+        }
+        if wait_for_ready and not local_port_is_open(port):
+            window = webview.create_window(
+                html=loading_page_html(),
+                **window_kwargs,
+            )
+        else:
+            window = webview.create_window(
+                url=url,
+                **window_kwargs,
+            )
         if APP_ICON_PNG.exists():
             try:
                 window.icon = str(APP_ICON_PNG)
             except Exception:
                 pass
-        webview.start()
+
+        def load_when_ready() -> None:
+            if wait_for_ready and not wait_for_local_port(port, 10.0):
+                window.load_html(error_page_html("Nao foi possivel iniciar o servidor local. Consulte o log do Apuana Monitor."))
+                return
+            window.load_url(url)
+
+        if wait_for_ready and not local_port_is_open(port):
+            webview.start(load_when_ready)
+        else:
+            webview.start()
         return True
     except Exception as exc:
         log(f"pywebview window failed: {exc}")
         return False
 
 
-def open_dashboard(url: str) -> None:
-    if not open_app_window(url):
-        open_url(url)
+def open_dashboard(url: str, port: int, wait_for_ready: bool = True) -> bool:
+    if open_app_window(url, port, wait_for_ready):
+        return True
+    log("native app window could not be opened; browser fallback is disabled")
+    return False
 
 
 def main() -> int:
     port = int(os.environ.get("SLURM_MONITOR_PORT", "8501"))
     url = f"http://127.0.0.1:{port}/"
     log(f"desktop launcher started for {url}")
-    if local_port_is_open(port):
-        log("server already running; opening dashboard")
-        open_dashboard(url)
-        return 0
 
     if not deps_are_ready():
         code = delegate_to_bootstrap()
         if code != 0 or not deps_are_ready():
             log(f"bootstrap failed with code {code}")
             return code
+    relaunch_with_venv_python()
+
+    if local_port_is_open(port):
+        log("server already running; opening dashboard")
+        return 0 if open_dashboard(url, port, wait_for_ready=False) else 1
 
     log("starting local server")
     process = start_bundled_server(port) if FROZEN else start_server(port)
-    if wait_for_local_port(port, 0.32):
-        log("server became ready quickly; opening dashboard")
-        open_dashboard(url)
-        return 0
-
-    log("server still starting; opening loading page")
-    page = write_loading_page(url)
-    open_url(page.resolve().as_uri())
-    wait_for_local_port(port, 6.0)
-    if local_port_is_open(port):
-        log("server became ready after loading page; opening dashboard")
-        open_dashboard(url)
+    log("opening dashboard app window")
+    opened = open_dashboard(url, port, wait_for_ready=True)
     code = 0 if process.poll() is None else process.returncode or 0
+    if not opened and code == 0:
+        code = 1
     log(f"desktop launcher finished with code {code}")
     return code
 
