@@ -322,6 +322,54 @@ def _run_with_stdin(cmd: list[str], data: bytes, timeout: int = 12) -> tuple[int
         return 1, "", str(exc)
 
 
+def _run_bytes(cmd: list[str], data: bytes = b"", timeout: int = 120) -> tuple[int, bytes, bytes]:
+    session = _session_client()
+    if session.get("token"):
+        if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
+            target = session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}"
+            ssh = [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                "-o",
+                "ServerAliveInterval=30",
+                target,
+                shlex.join(cmd),
+            ]
+            try:
+                result = subprocess.run(ssh, input=data, capture_output=True, timeout=timeout, check=False)
+                return result.returncode, result.stdout, result.stderr
+            except Exception as exc:
+                return 1, b"", str(exc).encode("utf-8", errors="replace")
+
+        with _ssh_exec_lock:
+            try:
+                client = session.get("client")
+                transport = client.get_transport() if client else None
+                if client is None or transport is None or not transport.is_active():
+                    client = _connect_ssh(session["host"], session["login"], session.get("password") or "")
+                    with _session_lock:
+                        _session["client"] = client
+                stdin, stdout, stderr = client.exec_command(shlex.join(cmd), timeout=timeout)
+                if data:
+                    stdin.write(data)
+                stdin.channel.shutdown_write()
+                out = stdout.read()
+                err = stderr.read()
+                rc = stdout.channel.recv_exit_status()
+                return rc, out, err
+            except Exception as exc:
+                return 1, b"", str(exc).encode("utf-8", errors="replace")
+
+    try:
+        result = subprocess.run(cmd, input=data, capture_output=True, timeout=timeout, check=False)
+        return result.returncode, result.stdout, result.stderr
+    except Exception as exc:
+        return 1, b"", str(exc).encode("utf-8", errors="replace")
+
+
 def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> dict:
     last_error = ""
     tried_keyring = False

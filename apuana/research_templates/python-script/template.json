@@ -1,0 +1,52 @@
+{
+  "id": "python-script",
+  "name": "Python script",
+  "description": "Executa qualquer comando Python dentro de um diretório de trabalho no Apuana.",
+  "template_file": "run.sbatch.tpl",
+  "project": "research",
+  "default_work_dir": "~",
+  "default_output_dir": "~/.apuana/research/runs/${run_id}/outputs",
+  "default_command": "python main.py",
+  "fields": [
+    {
+      "name": "project",
+      "label": "Projeto",
+      "type": "text",
+      "default": "research",
+      "required": true,
+      "maxLength": 96
+    },
+    {
+      "name": "work_dir",
+      "label": "Diretório de trabalho",
+      "type": "path",
+      "default": "~",
+      "required": true,
+      "maxLength": 512
+    },
+    {
+      "name": "env_activation",
+      "label": "Ativação do ambiente",
+      "type": "textarea",
+      "default": "source ~/.zshrc",
+      "required": false,
+      "maxLength": 4096
+    },
+    {
+      "name": "command",
+      "label": "Comando",
+      "type": "textarea",
+      "default": "python main.py",
+      "required": true,
+      "maxLength": 8192
+    },
+    {
+      "name": "output_dir",
+      "label": "Diretório de saída",
+      "type": "path",
+      "default": "~/.apuana/research/runs/${run_id}/outputs",
+      "required": true,
+      "maxLength": 512
+    }
+  ]
+}

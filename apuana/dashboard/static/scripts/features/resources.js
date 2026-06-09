@@ -113,6 +113,8 @@ function renderJobInfo(data) {
       })}
     </div>
 
+    <div id="research-job-slot" class="research-job-slot" hidden></div>
+
     <div class="job-sections">
       ${jobSection('Scheduling', [
         jobField('Partition', s.partition),
@@ -137,6 +139,9 @@ function renderJobInfo(data) {
       ])}
     </div>`;
 
+  if (typeof researchLoadForJob === 'function') {
+    researchLoadForJob(s.job_id || data.job_id);
+  }
 }
 
 function toggleJobRaw() {

@@ -207,3 +207,4 @@ $('gpu-job-sel').addEventListener('change', () => {
   gpuState = {...gpuState, jobId:'', response:null, raw:'', loadingId:''};
   fetchJobGpu();
 });
+if (typeof initResearch === 'function') initResearch();
