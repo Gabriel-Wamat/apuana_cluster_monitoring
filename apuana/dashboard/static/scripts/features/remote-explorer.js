@@ -223,7 +223,8 @@ function renderRemoteExplorer(data) {
       : `No items found in ${remoteExplorerState.path}`;
   }
 
-  if (!remoteExplorerState.items.length) {
+  const hasUploadTasks = remoteUploadTasksForCurrentPath().length > 0;
+  if (!remoteExplorerState.items.length && !hasUploadTasks) {
     grid.innerHTML = '<div class="remote-explorer-empty">No files or folders matched this period.</div>';
     return;
   }
@@ -239,24 +240,119 @@ function renderRemoteExplorer(data) {
 
 function renderRemoteExplorerGroups(groups) {
   const renderer = remoteViewMode() === 'list' ? remoteListGroupTemplate : remoteGridGroupTemplate;
-  return Object.entries(groups)
+  const uploads = remoteUploadGroupTemplate();
+  const files = Object.entries(groups)
     .filter(([, items]) => items.length)
     .map(([key, items]) => renderer(key, items))
     .join('');
+  return uploads + files;
+}
+
+function remoteUploadTasksForCurrentPath() {
+  const current = normalizeRemotePath(remoteExplorerState.path || transferState.current || transferState.home || '');
+  return (uploadTasks || []).filter(task => {
+    const destination = normalizeRemotePath(task.remotePath || '');
+    return destination && current && destination === current && task.status !== 'cleared';
+  });
+}
+
+function remoteUploadGroupTemplate() {
+  const tasks = remoteUploadTasksForCurrentPath();
+  if (!tasks.length) return '';
+  const listMode = remoteViewMode() === 'list';
+  return `
+    <section class="remote-period-group remote-upload-group">
+      <div class="remote-period-title">Importing</div>
+      ${listMode
+        ? `<div class="remote-list-table remote-upload-table">${tasks.map(remoteUploadListRowTemplate).join('')}</div>`
+        : `<div class="remote-tile-grid">${tasks.map(remoteUploadTileTemplate).join('')}</div>`}
+    </section>
+  `;
+}
+
+function remoteUploadPercent(task) {
+  if (task.status === 'done') return 100;
+  if (task.status === 'error') return 100;
+  const reported = Number(task.progress || 0);
+  if (reported > 0) return Math.max(5, Math.min(95, Math.round(reported)));
+  const elapsed = Math.max(0, Date.now() - Number(task.startedAt || Date.now()));
+  return Math.max(12, Math.min(88, Math.round(18 + elapsed / 900)));
+}
+
+function remoteUploadStatusText(task) {
+  if (task.status === 'done') return 'Import completed';
+  if (task.status === 'error') return task.error || 'Import failed';
+  return 'Uploading...';
+}
+
+function remoteUploadListRowTemplate(task) {
+  const pct = remoteUploadPercent(task);
+  return `
+    <div class="remote-list-row remote-tile remote-upload-placeholder ${esc(task.status || 'running')}">
+      <span class="remote-list-name">
+        <span class="remote-list-icon">${remoteIcon('directory')}</span>
+        <span class="remote-list-copy">
+          <span class="remote-list-title" title="${esc(task.localPath || task.name)}">${esc(task.name || 'Folder')}</span>
+          <span class="remote-list-path">${esc(remoteUploadStatusText(task))}</span>
+        </span>
+      </span>
+      <span class="remote-list-cell">${esc(task.status === 'done' ? 'Ready' : 'Pending')}</span>
+      <span class="remote-list-cell">Folder</span>
+      <span class="remote-list-cell">${pct}%</span>
+      <span></span>
+      <i class="remote-upload-progress" style="--upload-progress:${pct}%"></i>
+    </div>
+  `;
+}
+
+function remoteUploadTileTemplate(task) {
+  const pct = remoteUploadPercent(task);
+  return `
+    <div class="remote-tile directory remote-upload-placeholder ${esc(task.status || 'running')}">
+      <span class="remote-tile-icon">${remoteIcon('directory')}</span>
+      <span class="remote-tile-name" title="${esc(task.localPath || task.name)}">${esc(task.name || 'Folder')}</span>
+      <span class="remote-tile-meta">${esc(remoteUploadStatusText(task))}</span>
+      <i class="remote-upload-progress" style="--upload-progress:${pct}%"></i>
+    </div>
+  `;
+}
+
+function refreshRemoteUploadPlaceholders() {
+  if (!remoteExplorerState.loaded) return;
+  renderRemoteExplorer({
+    ok: true,
+    error: '',
+    path: remoteExplorerState.path,
+    home: remoteExplorerState.home || transferState.home,
+    period: remoteExplorerState.period,
+    items: remoteExplorerState.items || [],
+  });
 }
 
 function bindRemoteExplorerInteractions(grid) {
   grid.querySelectorAll('.remote-tile').forEach(tile => {
+    if (tile.classList.contains('remote-upload-placeholder')) return;
     tile.addEventListener('click', () => {
       const path = tile.getAttribute('data-path') || '';
       const kind = tile.getAttribute('data-kind') || '';
-      if (kind === 'directory') loadRemoteExplorer(path, undefined, {pushHistory: true});
-      else selectDownloadPath(path, kind);
+      selectDownloadPath(path, kind);
+      renderRemoteExplorer({
+        ok: true,
+        error: '',
+        path: remoteExplorerState.path,
+        home: remoteExplorerState.home || transferState.home,
+        period: remoteExplorerState.period,
+        items: remoteExplorerState.items,
+      });
     });
     tile.addEventListener('dblclick', ev => {
       const path = tile.getAttribute('data-path') || '';
       const kind = tile.getAttribute('data-kind') || '';
-      if (kind !== 'directory' && path) {
+      if (kind === 'directory' && path) {
+        ev.preventDefault();
+        closeRemoteTileMenus();
+        loadRemoteExplorer(path, undefined, {pushHistory: true});
+      } else if (path) {
         ev.preventDefault();
         closeRemoteTileMenus();
         openRemoteEdit(path);
@@ -331,8 +427,9 @@ function remoteListGroupTemplate(key, items) {
 
 function remoteListRowTemplate(item) {
   const kind = item.kind || 'other';
+  const selected = sameRemotePath(item.path, transferState.selectedPath);
   return `
-    <div class="remote-list-row remote-tile ${esc(kind)}" role="button" tabindex="0" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
+    <div class="remote-list-row remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
       <span class="remote-list-name">
         <span class="remote-list-icon">${remoteIcon(kind)}</span>
         <span class="remote-list-copy">
@@ -364,8 +461,9 @@ function remoteTileActionsTemplate(item) {
 
 function remoteTileTemplate(item) {
   const kind = item.kind || 'other';
+  const selected = sameRemotePath(item.path, transferState.selectedPath);
   return `
-    <div class="remote-tile ${esc(kind)}" role="button" tabindex="0" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
+    <div class="remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
       <span class="remote-tile-icon">${remoteIcon(kind)}</span>
       <span class="remote-tile-name" title="${esc(item.name || item.path)}">${esc(item.name || item.path)}</span>
       <span class="remote-tile-meta">${esc(remoteItemSubtitle(item))}</span>

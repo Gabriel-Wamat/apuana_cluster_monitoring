@@ -151,6 +151,13 @@ async function validateAuthSession() {
   }
 }
 
+async function refreshClusterAfterAuth() {
+  const refresh = typeof window.poll === 'function'
+    ? window.poll
+    : (typeof poll === 'function' ? poll : null);
+  if (refresh) await refresh();
+}
+
 async function submitSshLogin() {
   const login = normalizeLogin($('ssh-login')?.value || '');
   const password = $('ssh-password')?.value || '';
@@ -189,7 +196,7 @@ async function submitSshLogin() {
         ? (body.credential_error || 'Login realizado, mas não foi possível salvar a senha no cofre deste sistema.')
         : '';
     }
-    await poll();
+    await refreshClusterAfterAuth();
   } catch (err) {
     forceAuthRequired();
     if (isVpnFailure(err?.code, err?.detail || err?.message)) showVpnModal();
@@ -219,7 +226,7 @@ async function tryAutoSshLogin() {
     setAuthenticatedSession(body, {login: loginHint, remember: true});
     if (errorEl) errorEl.textContent = '';
     showInitialLoader();
-    await poll();
+    await refreshClusterAfterAuth();
     return true;
   } catch (err) {
     forceAuthRequired();
@@ -236,7 +243,7 @@ async function bootstrapSshAuth() {
     showInitialLoader();
     const ok = await validateAuthSession();
     if (ok) {
-      await poll();
+      await refreshClusterAfterAuth();
       return;
     }
   }
