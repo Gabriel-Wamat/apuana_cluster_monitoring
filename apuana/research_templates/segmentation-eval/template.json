@@ -1,0 +1,92 @@
+{
+  "id": "segmentation-eval",
+  "name": "Segmentation evaluation",
+  "description": "Template genérico para avaliação/inferência de segmentação com dataset, checkpoint e saída padronizada.",
+  "template_file": "run.sbatch.tpl",
+  "project": "segmentation",
+  "default_work_dir": "~",
+  "default_output_dir": "~/research_outputs/${run_id}",
+  "default_command": "python evaluate.py --dataset \"$RESEARCH_PARAM_DATASET\" --checkpoint \"$RESEARCH_PARAM_CHECKPOINT\" --split \"$RESEARCH_PARAM_SPLIT\" --mode \"$RESEARCH_PARAM_MODE\" --output \"$RESEARCH_OUTPUT_DIR\"",
+  "fields": [
+    {
+      "name": "project",
+      "label": "Projeto",
+      "type": "text",
+      "default": "high-res-segmentation",
+      "required": true,
+      "maxLength": 96
+    },
+    {
+      "name": "work_dir",
+      "label": "Diretório do código",
+      "type": "path",
+      "default": "~",
+      "required": true,
+      "maxLength": 512
+    },
+    {
+      "name": "env_activation",
+      "label": "Ativação do ambiente",
+      "type": "textarea",
+      "default": "source ~/.zshrc",
+      "required": false,
+      "maxLength": 4096
+    },
+    {
+      "name": "dataset",
+      "label": "Dataset",
+      "type": "path",
+      "default": "",
+      "required": true,
+      "maxLength": 512
+    },
+    {
+      "name": "checkpoint",
+      "label": "Checkpoint",
+      "type": "path",
+      "default": "",
+      "required": true,
+      "maxLength": 512
+    },
+    {
+      "name": "config",
+      "label": "Config opcional",
+      "type": "path",
+      "default": "",
+      "required": false,
+      "maxLength": 512
+    },
+    {
+      "name": "split",
+      "label": "Split",
+      "type": "select",
+      "default": "test",
+      "options": ["train", "val", "test", "full"],
+      "required": true
+    },
+    {
+      "name": "mode",
+      "label": "Modo",
+      "type": "select",
+      "default": "smoke",
+      "options": ["smoke", "eval", "inference", "full"],
+      "required": true
+    },
+    {
+      "name": "command",
+      "label": "Comando",
+      "type": "textarea",
+      "default": "python evaluate.py --dataset \"$RESEARCH_PARAM_DATASET\" --checkpoint \"$RESEARCH_PARAM_CHECKPOINT\" --split \"$RESEARCH_PARAM_SPLIT\" --mode \"$RESEARCH_PARAM_MODE\" --output \"$RESEARCH_OUTPUT_DIR\"",
+      "required": true,
+      "maxLength": 8192
+    },
+    {
+      "name": "output_dir",
+      "label": "Diretório de saída",
+      "type": "path",
+      "default": "~/research_outputs/${run_id}",
+      "required": true,
+      "maxLength": 512
+    }
+  ]
+}

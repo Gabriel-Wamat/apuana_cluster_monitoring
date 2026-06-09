@@ -2,7 +2,13 @@
   <div class="view" id="view-jobs">
     <div class="jobs-grid">
       <div>
-        <div class="sec-title" style="margin-bottom:12px">Inspect job</div>
+        <div class="jobs-section-head">
+          <div class="sec-title">Inspect job</div>
+          <button class="mini-btn primary btn-with-icon" id="research-open" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/><path d="M4 19h16"/><path d="M4 5h16"/></svg>
+            <span>Novo experimento</span>
+          </button>
+        </div>
         <div class="job-row job-inspect-row">
           <input class="job-id-input" id="job-id-in" type="text" placeholder="Job ID (ex: 12345)">
           <div class="job-select-wrap" id="job-queue-picker" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
@@ -41,6 +47,82 @@
           <div id="gpu-status"></div>
           <div class="gpu-grid" id="gpu-cards"></div>
           <div class="code-block gpu-raw" id="gpu-output" hidden>Select one of your running GPU jobs.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="remote-modal research-modal" id="research-modal" aria-hidden="true">
+      <div class="remote-modal-card research-modal-card">
+        <div class="remote-edit-head">
+          <div>
+            <h3>Novo experimento</h3>
+            <p>Submeta um job de pesquisa usando templates reutilizáveis sobre o painel Jobs atual.</p>
+          </div>
+          <button class="icon-btn" id="research-close" type="button" aria-label="Fechar experimento" title="Fechar">
+            <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+
+        <div class="research-form-grid">
+          <label class="research-field">
+            <span>Template</span>
+            <select id="research-template"></select>
+          </label>
+          <label class="research-field">
+            <span>Partição</span>
+            <select id="research-slurm-partition">
+              <option value="short-simple">short-simple</option>
+              <option value="short-complex">short-complex</option>
+              <option value="long-simple">long-simple</option>
+              <option value="long-complex">long-complex</option>
+            </select>
+          </label>
+          <label class="research-field">
+            <span>CPUs</span>
+            <input id="research-slurm-cpus" type="number" min="1" max="48" value="4">
+          </label>
+          <label class="research-field">
+            <span>Memória</span>
+            <input id="research-slurm-mem" type="text" value="16G">
+          </label>
+          <label class="research-field">
+            <span>GPUs</span>
+            <input id="research-slurm-gpus" type="number" min="0" max="4" value="0">
+          </label>
+          <label class="research-field">
+            <span>Tempo</span>
+            <input id="research-slurm-time" type="text" value="02:00:00">
+          </label>
+          <label class="research-field">
+            <span>Nó opcional</span>
+            <input id="research-slurm-node" type="text" placeholder="cluster-node5">
+          </label>
+          <label class="research-field">
+            <span>Nome do job</span>
+            <input id="research-slurm-name" type="text" value="research">
+          </label>
+        </div>
+
+        <div class="research-template-fields" id="research-template-fields"></div>
+
+        <div class="research-preview-shell">
+          <div class="research-preview-head">
+            <span>Preview sbatch</span>
+            <span id="research-status">Pronto para configurar.</span>
+          </div>
+          <pre id="research-preview" class="code-block research-preview">Escolha um template e gere o preview antes de submeter.</pre>
+        </div>
+
+        <div class="remote-modal-actions">
+          <button class="mini-btn" id="research-cancel" type="button">Cancelar</button>
+          <button class="mini-btn btn-with-icon" id="research-preview-btn" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
+            <span>Preview sbatch</span>
+          </button>
+          <button class="mini-btn primary btn-with-icon" id="research-submit" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M4 4h16"/></svg>
+            <span>Submit</span>
+          </button>
         </div>
       </div>
     </div>

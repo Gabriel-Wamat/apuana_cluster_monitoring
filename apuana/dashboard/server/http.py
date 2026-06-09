@@ -20,6 +20,15 @@ from .fs import _fs_payload
 from .local_picker import _choose_local_folder
 from .logs import _log_files_payload
 from .remote_files import _delete_remote_path, _explorer_payload, _read_remote_file, _write_remote_file
+from .research import (
+    research_artifact_file_payload,
+    research_artifacts_payload,
+    research_job_payload,
+    research_metrics_payload,
+    research_preview_payload,
+    research_submit_payload,
+    research_templates_payload,
+)
 from .runtime import (
     _auto_login_session,
     _clear_session,
@@ -296,6 +305,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if result.get("ok") else 400, result)
             return
 
+        if parsed.path == "/api/research/preview":
+            if not self._require_auth():
+                return
+            result = research_preview_payload(self._read_json_body())
+            self._json(200 if result.get("ok") else 400, result)
+            return
+
+        if parsed.path == "/api/research/submit":
+            if not self._require_auth():
+                return
+            result = research_submit_payload(self._read_json_body())
+            self._json(200 if result.get("ok") else 400, result)
+            return
+
         if parsed.path == "/api/local/folder-picker":
             if not self._has_session():
                 self._json(401, {"ok": False, "error": "SSH login required."})
@@ -457,6 +480,39 @@ class Handler(BaseHTTPRequestHandler):
                 return
             rc, out, err = _run(["scontrol", "show", "job", jid])
             self._send(200, "text/plain", (out or err or "no output").encode())
+        elif parsed.path == "/api/research/templates":
+            if not self._require_auth():
+                return
+            payload = research_templates_payload()
+            self._json(200 if payload.get("ok") else 400, payload)
+        elif parsed.path == "/api/research/job":
+            if not self._require_auth():
+                return
+            jid = qs.get("id", [""])[0].strip()
+            payload = research_job_payload(jid)
+            self._json(200 if payload.get("ok") or payload.get("code") == "not_research_job" else 400, payload)
+        elif parsed.path == "/api/research/metrics":
+            if not self._require_auth():
+                return
+            jid = qs.get("id", [""])[0].strip()
+            payload = research_metrics_payload(jid)
+            self._json(200 if payload.get("ok") or payload.get("code") == "not_research_job" else 400, payload)
+        elif parsed.path == "/api/research/artifacts":
+            if not self._require_auth():
+                return
+            jid = qs.get("id", [""])[0].strip()
+            payload = research_artifacts_payload(jid)
+            self._json(200 if payload.get("ok") or payload.get("code") == "not_research_job" else 400, payload)
+        elif parsed.path == "/api/research/artifact-file":
+            if not self._require_auth():
+                return
+            path = qs.get("path", [""])[0]
+            payload = research_artifact_file_payload(path)
+            if not payload.get("ok"):
+                self._json(400, payload)
+                return
+            body = payload.get("body") or b""
+            self._send(200, payload.get("content_type") or "application/octet-stream", body)
         elif parsed.path == "/api/log-files":
             if not self._require_auth():
                 return
