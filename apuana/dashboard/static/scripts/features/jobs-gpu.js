@@ -102,12 +102,98 @@ function ownRunningGpuJobs(d) {
     .filter(job => job.user === user && Number(job.gpus || 0) > 0);
 }
 
+function firstRunningGpuJobId(d) {
+  return String(ownRunningGpuJobs(d)[0]?.job_id || '');
+}
+
+function resetGpuTelemetryState() {
+  gpuState = {...gpuState, jobId:'', response:null, raw:'', loadingId:''};
+}
+
 function selectedGpuJobId() {
   return ($('gpu-job-id')?.value || '').trim() || ($('gpu-job-sel')?.value || '').trim();
 }
 
+function isInactiveGpuJobError(data) {
+  const error = String(data?.error || data?.stderr || '');
+  return /Invalid job id|not active|not running|slurm_load_jobs/i.test(error);
+}
+
+function setGpuPanelEmpty(message) {
+  const panel = $('gpu-status')?.closest('.gpu-panel');
+  panel?.classList.add('gpu-panel--empty');
+  $('gpu-status').innerHTML = `<div class="gpu-empty-state">
+    <div class="gpu-empty-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M4 7h10v10H4z"/><path d="m14 10 5-3v10l-5-3z"/></svg>
+    </div>
+    <strong>${esc(message)}</strong>
+    <span>Quando um job GPU estiver em execução, a telemetria aparece neste painel.</span>
+  </div>`;
+  $('gpu-cards').innerHTML = '';
+}
+
+function clearGpuPanelEmpty() {
+  $('gpu-status')?.closest('.gpu-panel')?.classList.remove('gpu-panel--empty');
+}
+
+function gpuInfoTile(label, value, tone = '') {
+  return `<div class="gpu-info-tile ${tone}">
+    <span>${esc(label)}</span>
+    <strong>${esc(value || '-')}</strong>
+  </div>`;
+}
+
+function gpuPower(g) {
+  if (!g?.power_draw && !g?.power_limit) return '-';
+  const draw = g.power_draw ? `${Math.round(Number(g.power_draw_w || 0)) || g.power_draw}W` : '-';
+  const limit = g.power_limit ? `${Math.round(Number(g.power_limit_w || 0)) || g.power_limit}W` : '-';
+  return `${draw} / ${limit}`;
+}
+
+function gpuJobOverview(data, gpus) {
+  const job = data.job || {};
+  const resources = data.resources || {};
+  const mainGpu = gpus[0] || {};
+  const gpuLabel = gpus.length > 1 ? `${gpus.length} GPUs detectadas` : (mainGpu.name || 'GPU detectada');
+  const node = job.node_list || job.batch_host || '-';
+  const visible = gpus.map(g => g.index).filter(Boolean).join(', ') || '-';
+  return `<div class="gpu-overview">
+    <section class="gpu-info-card">
+      <div class="gpu-info-head">
+        <span>Servidor</span>
+        <strong>Alocação remota</strong>
+      </div>
+      <div class="gpu-info-grid">
+        ${gpuInfoTile('Job', data.base_job_id || data.job_id, 'metric-ok')}
+        ${gpuInfoTile('Nó', node)}
+        ${gpuInfoTile('Partição', job.partition)}
+        ${gpuInfoTile('CPUs', resources.cpus)}
+        ${gpuInfoTile('Memória', resources.memory)}
+        ${gpuInfoTile('Tempo', job.runtime)}
+      </div>
+      ${gpuInfoTile('GPU visível', visible, 'gpu-info-wide')}
+    </section>
+
+    <section class="gpu-info-card">
+      <div class="gpu-info-head">
+        <span>Hardware</span>
+        <strong>${esc(gpuLabel)}</strong>
+      </div>
+      <div class="gpu-info-grid">
+        ${gpuInfoTile('GPU', mainGpu.name)}
+        ${gpuInfoTile('Temp', mainGpu.temp ? `${mainGpu.temp}C` : '-')}
+        ${gpuInfoTile('Power', gpuPower(mainGpu))}
+        ${gpuInfoTile('Memória', mainGpu.mem_total ? `${mainGpu.mem_used}MiB / ${mainGpu.mem_total}MiB` : '-')}
+        ${gpuInfoTile('Driver', mainGpu.driver)}
+        ${gpuInfoTile('CUDA', data.cuda_version)}
+      </div>
+    </section>
+  </div>`;
+}
+
 function renderGpuResult(data) {
   if (!data) return;
+  clearGpuPanelEmpty();
   const gpus = data.gpus || [];
   const raw = [
     `$ ${data.command || `srun --immediate=1 --jobid=${data.base_job_id || data.job_id || ''} nvidia-smi`}`,
@@ -124,6 +210,17 @@ function renderGpuResult(data) {
   $('gpu-output').hidden = !gpuState.rawVisible || !raw;
 
   if (!data.ok) {
+    const liveFallback = firstRunningGpuJobId(_last);
+    const failedJobId = String(data.job_id || data.base_job_id || '');
+    if (isInactiveGpuJobError(data) && liveFallback && liveFallback !== failedJobId) {
+      const manual = $('gpu-job-id');
+      if (manual && document.activeElement !== manual) manual.value = '';
+      $('gpu-job-sel').value = liveFallback;
+      updateGpuJobLabel();
+      resetGpuTelemetryState();
+      fetchJobGpu(liveFallback);
+      return;
+    }
     $('gpu-status').innerHTML = `<div class="alert a-warn">${esc(data.error || 'GPU telemetry unavailable for this job.')}</div>`;
     $('gpu-cards').innerHTML = '';
     return;
@@ -133,11 +230,12 @@ function renderGpuResult(data) {
     <span class="gpu-live-dot"></span>
     <span>Live telemetry for job <strong>${esc(data.base_job_id || data.job_id)}</strong></span>
   </div>`;
-  $('gpu-cards').innerHTML = gpus.map(g => {
+  $('gpu-cards').innerHTML = gpuJobOverview(data, gpus) + gpus.map(g => {
     const mPct = Math.round(g.mem_used / g.mem_total * 100);
+    const pPct = g.power_limit_w ? Math.round((g.power_draw_w || 0) / g.power_limit_w * 100) : 0;
     const utilTone = g.util >= 80 ? 'metric-ok' : g.util >= 30 ? 'metric-info' : '';
     const tempTone = g.temp > 80 ? 'metric-danger' : g.temp > 65 ? 'metric-warn' : '';
-    return `<div class="gpu-detail-card">
+    return `<div class="gpu-detail-card gpu-device-card">
       <div class="job-hero gpu-hero">
         <div>
           <div class="job-id">GPU ${esc(g.index)}</div>
@@ -157,6 +255,7 @@ function renderGpuResult(data) {
       <div class="gpu-bar-section">
         ${prog(g.util,'pp','Utilization',`${g.util}%`)}
         ${prog(mPct,'pi','VRAM',`${g.mem_used} / ${g.mem_total} MiB`)}
+        ${pPct ? prog(pPct,'pw','Power',gpuPower(g)) : ''}
       </div>
     </div>`;
   }).join('');
@@ -172,17 +271,33 @@ function populateGpuJobs(d) {
   const sel = $('gpu-job-sel');
   if (!sel) return [];
   const running = ownRunningGpuJobs(d);
-  const previous = sel.value || gpuState.jobId;
+  const runningIds = new Set(running.map(job => String(job.job_id)));
+  const manual = $('gpu-job-id');
+  const manualValue = (manual?.value || '').trim();
+  const manualIsActive = document.activeElement === manual;
+  const previous = String(sel.value || gpuState.jobId || '');
   sel.innerHTML = '<option value="">Your running GPU job</option>' +
     running.map(job => {
       const label = `${job.job_id} - ${job.name || 'gpu job'}`;
       const title = job.partition ? `${label} · ${job.partition}` : label;
       return `<option value="${esc(job.job_id)}" title="${esc(title)}" data-state="RUNNING">${esc(label)}</option>`;
     }).join('');
-  if (previous && running.some(job => job.job_id === previous)) {
+
+  if (manualValue && !runningIds.has(manualValue) && !manualIsActive) {
+    manual.value = '';
+  }
+
+  if (previous && runningIds.has(previous)) {
     sel.value = previous;
-  } else if (!selectedGpuJobId() && running.length) {
-    sel.value = running[0].job_id;
+  } else if (!manualIsActive && running.length) {
+    sel.value = String(running[0].job_id);
+  } else {
+    sel.value = '';
+  }
+
+  const selected = selectedGpuJobId();
+  if (gpuState.jobId && !runningIds.has(String(gpuState.jobId)) && String(gpuState.jobId) !== selected) {
+    resetGpuTelemetryState();
   }
   updateGpuJobLabel();
   return running;
@@ -192,8 +307,7 @@ function ensureGpuReady() {
   const running = populateGpuJobs(_last);
   const jobId = selectedGpuJobId();
   if (!running.length && !jobId) {
-    $('gpu-status').innerHTML = '<div class="alert a-warn">No RUNNING GPU jobs for this user.</div>';
-    $('gpu-cards').innerHTML = '';
+    setGpuPanelEmpty('No RUNNING GPU jobs for this user.');
     $('gpu-output').textContent = 'No running GPU job selected.';
   }
 }

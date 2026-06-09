@@ -19,6 +19,18 @@ def _int(v: str) -> int:
         return 0
 
 
+def _float(v: str) -> float:
+    try:
+        return float((v or "").replace("[Not Supported]", "").replace("N/A", "").strip())
+    except Exception:
+        return 0.0
+
+
+def _metric_value(v: str) -> str:
+    value = (v or "").strip()
+    return "" if not value or value.upper() in {"N/A", "[N/A]"} else value
+
+
 def _human_size(size: int) -> str:
     value = float(max(size, 0))
     for unit in ("B", "KiB", "MiB", "GiB"):
@@ -294,6 +306,8 @@ def _parse_nvidia_smi_csv(out: str) -> list[dict]:
         parts = [part.strip() for part in line.split(",")]
         if len(parts) < 6:
             continue
+        power_draw = _metric_value(parts[6]) if len(parts) > 6 else ""
+        power_limit = _metric_value(parts[7]) if len(parts) > 7 else ""
         gpus.append(
             {
                 "index": parts[0],
@@ -302,9 +316,19 @@ def _parse_nvidia_smi_csv(out: str) -> list[dict]:
                 "mem_used": _int(parts[3]),
                 "mem_total": max(_int(parts[4]), 1),
                 "temp": _int(parts[5]),
+                "power_draw": power_draw,
+                "power_limit": power_limit,
+                "power_draw_w": _float(power_draw),
+                "power_limit_w": _float(power_limit),
+                "driver": parts[8] if len(parts) > 8 else "",
             }
         )
     return gpus
+
+
+def _parse_cuda_version(raw: str) -> str:
+    match = re.search(r"CUDA Version:\s*([0-9.]+)", raw or "")
+    return match.group(1) if match else ""
 
 
 def _job_gpu_access(base_job_id: str) -> tuple[bool, str]:
@@ -364,22 +388,43 @@ def _job_gpu_payload(raw_job_id: str) -> dict:
             "code": 0,
         }
 
+    query_fields = "index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,driver_version"
+    query_cmd = f"nvidia-smi --query-gpu={query_fields} --format=csv,noheader,nounits"
     cmd = [
         "srun",
         "--immediate=1",
         f"--jobid={base_job_id}",
-        "nvidia-smi",
-        "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
-        "--format=csv,noheader,nounits",
+        "bash",
+        "-lc",
+        f"{query_cmd}; printf '\\n--APUANA-NVIDIA-SMI--\\n'; nvidia-smi",
     ]
-    rc, out, err = _run(cmd, timeout=10)
-    gpus = _parse_nvidia_smi_csv(out) if rc == 0 else []
+    rc, out, err = _run(cmd, timeout=12)
+    csv_out, _, smi_raw = (out or "").partition("--APUANA-NVIDIA-SMI--")
+    gpus = _parse_nvidia_smi_csv(csv_out) if rc == 0 else []
+    if rc != 0 or not gpus:
+        fallback_cmd = [
+            "srun",
+            "--immediate=1",
+            f"--jobid={base_job_id}",
+            "nvidia-smi",
+            "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ]
+        fallback_rc, fallback_out, fallback_err = _run(fallback_cmd, timeout=10)
+        if fallback_rc == 0 and _parse_nvidia_smi_csv(fallback_out):
+            cmd, rc, out, err = fallback_cmd, fallback_rc, fallback_out, fallback_err
+            smi_raw = ""
+            gpus = _parse_nvidia_smi_csv(fallback_out)
+    job_info = _job_info_payload(base_job_id)
     return {
         "ok": rc == 0 and bool(gpus),
         "error": "" if rc == 0 and gpus else (err or out or "No GPU telemetry returned."),
         "job_id": job_id,
         "base_job_id": base_job_id,
         "command": " ".join(cmd),
+        "job": job_info.get("summary", {}) if job_info.get("ok") else {},
+        "resources": job_info.get("resources", {}) if job_info.get("ok") else {},
+        "cuda_version": _parse_cuda_version(smi_raw),
         "gpus": gpus,
         "stdout": out,
         "stderr": err,

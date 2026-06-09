@@ -136,6 +136,7 @@ function renderJobInfo(data) {
         jobField('Stderr', s.stderr, true),
       ])}
     </div>`;
+
 }
 
 function toggleJobRaw() {

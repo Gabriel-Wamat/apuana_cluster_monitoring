@@ -35,6 +35,7 @@ from .runtime import (
 from .slurm import _cache, _job_gpu_payload, _job_info_payload, _lock, _normalize_job_id
 from .terminal import (
     _terminal_close_active,
+    _terminal_event_payload,
     _terminal_input_payload,
     _terminal_read_payload,
     _terminal_resize_payload,
@@ -42,7 +43,14 @@ from .terminal import (
     _terminal_stop_payload,
 )
 from .templates import _index_html_bytes
-from .transfers import _execute_rsync_download, _execute_transfer, _upload_streams
+from .transfers import (
+    _execute_rsync_download,
+    _execute_rsync_upload,
+    _execute_transfer,
+    _start_rsync_upload_task,
+    _transfer_task_payload,
+    _upload_streams,
+)
 
 def _login_failure_payload(exc: Exception) -> tuple[int, dict]:
     detail = str(exc).strip()
@@ -233,6 +241,32 @@ class Handler(BaseHTTPRequestHandler):
                 return
             payload = self._read_json_body()
             result = _execute_rsync_download(
+                local_path=payload.get("localPath") or "",
+                remote_path=payload.get("remotePath") or "",
+                include_contents=bool(payload.get("includeContents")),
+            )
+            self._json(200 if result.get("ok") else 400, result)
+            return
+
+        if parsed.path == "/api/transfer/rsync-upload":
+            if not self._has_session():
+                self._json(401, {"ok": False, "error": "SSH login required."})
+                return
+            payload = self._read_json_body()
+            result = _execute_rsync_upload(
+                local_path=payload.get("localPath") or "",
+                remote_path=payload.get("remotePath") or "",
+                include_contents=bool(payload.get("includeContents")),
+            )
+            self._json(200 if result.get("ok") else 400, result)
+            return
+
+        if parsed.path == "/api/transfer/rsync-upload/start":
+            if not self._has_session():
+                self._json(401, {"ok": False, "error": "SSH login required."})
+                return
+            payload = self._read_json_body()
+            result = _start_rsync_upload_task(
                 local_path=payload.get("localPath") or "",
                 remote_path=payload.get("remotePath") or "",
                 include_contents=bool(payload.get("includeContents")),
@@ -452,6 +486,12 @@ class Handler(BaseHTTPRequestHandler):
             period = qs.get("period", ["all"])[0].strip() or "all"
             body = json.dumps(_explorer_payload(path, period)).encode()
             self._send(200, "application/json", body)
+        elif parsed.path == "/api/transfer/task":
+            if not self._require_auth():
+                return
+            task_id = qs.get("id", [""])[0].strip()
+            payload = _transfer_task_payload(task_id)
+            self._json(200 if payload.get("ok") else 404, payload)
         elif parsed.path == "/api/remote/file":
             if not self._require_auth():
                 return
@@ -495,6 +535,33 @@ class Handler(BaseHTTPRequestHandler):
             terminal_id = qs.get("id", [""])[0]
             body = json.dumps(_terminal_read_payload(terminal_id)).encode()
             self._send(200, "application/json", body)
+        elif parsed.path == "/api/terminal/events":
+            if not self._require_auth():
+                return
+            terminal_id = qs.get("id", [""])[0]
+            try:
+                since = int(qs.get("since", ["0"])[0] or "0")
+            except ValueError:
+                since = 0
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            while True:
+                payload = _terminal_event_payload(terminal_id, since, timeout=25.0)
+                if payload.get("ok"):
+                    since = int(payload.get("seq") or since)
+                event = "terminal" if payload.get("ok") else "error"
+                body = json.dumps(payload).encode("utf-8")
+                try:
+                    self.wfile.write(b"event: " + event.encode("ascii") + b"\n")
+                    self.wfile.write(b"data: " + body + b"\n\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    break
+                if not payload.get("ok") or payload.get("alive") is False:
+                    break
         else:
             self.send_response(404)
             self.end_headers()

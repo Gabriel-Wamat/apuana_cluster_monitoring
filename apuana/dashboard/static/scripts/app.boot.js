@@ -22,7 +22,17 @@ initCustomSelect('remote-period', {
   placeholder: 'Period',
   emptyText: 'No periods.',
 });
-setInterval(poll, 5000);
+setInterval(() => {
+  if (typeof window.poll === 'function') window.poll();
+}, 5000);
+
+document.querySelectorAll('[data-performance-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (typeof setPerformanceMode === 'function') {
+      setPerformanceMode(btn.getAttribute('data-performance-mode') || 'hardware');
+    }
+  });
+});
 $('job-queue-sel').addEventListener('change', () => {
   updateJobQueueLabel();
   $('job-id-in').value = '';
@@ -87,7 +97,6 @@ $('remote-import-open')?.addEventListener('click', () => openImportModal());
 $('remote-import-close')?.addEventListener('click', closeImportModal);
 $('remote-import-cancel')?.addEventListener('click', closeImportModal);
 $('upload-picker-file')?.addEventListener('change', ev => uploadFilesFromInput(ev.target));
-$('upload-picker-folder')?.addEventListener('change', ev => uploadFilesFromInput(ev.target));
 $('download-run-rsync')?.addEventListener('click', runDownloadRsync);
 $('download-choose-folder')?.addEventListener('click', chooseDownloadFolder);
 $('download-clear')?.addEventListener('click', clearDownloadSelection);

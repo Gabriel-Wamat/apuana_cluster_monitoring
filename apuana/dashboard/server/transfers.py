@@ -3,10 +3,16 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
+import time
+import uuid
 from pathlib import Path, PurePosixPath
 
 from .config import TRANSFER_HOST
 from .runtime import _connect_ssh, _session, _session_client, _session_lock, _session_public
+
+_transfer_task_lock = threading.Lock()
+_transfer_tasks: dict[str, dict] = {}
 
 def _user_path(raw: str) -> Path:
     raw = (raw or "~").strip() or "~"
@@ -372,6 +378,200 @@ def _execute_rsync_download(local_path: str, remote_path: str, include_contents:
         "error": "",
         "auth": auth_method,
     }
+
+
+def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: bool) -> dict:
+    session = _session_client()
+    login = session.get("login") or ""
+    host = TRANSFER_HOST or session.get("host") or ""
+    remote_home = session.get("home") or f"/home/CIN/{login}"
+    password = session.get("password") or ""
+    if not login or not host:
+        return {"ok": False, "error": "SSH login required before executing upload."}
+
+    normalized_remote, remote_err = _normalize_remote_path(remote_path, remote_home, True)
+    if remote_err:
+        return {"ok": False, "error": remote_err}
+    normalized_local, local_err = _normalize_local_path(local_path, include_contents)
+    if local_err:
+        return {"ok": False, "error": local_err}
+
+    local_target = Path(os.path.expandvars(os.path.expanduser(normalized_local.rstrip("/")))).resolve(strict=False)
+    if not local_target.exists():
+        return {"ok": False, "error": f"Local path not found: {local_target}"}
+
+    rsync = shutil.which("rsync")
+    if not rsync:
+        return {"ok": False, "error": "rsync was not found on this local machine."}
+
+    auth_method = "SSH key from local machine"
+    askpass_path = ""
+    ssh_command = [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "NumberOfPasswordPrompts=1",
+    ]
+    command = [
+        rsync,
+        "-avzP",
+        "-e",
+        " ".join(ssh_command),
+        normalized_local,
+        _remote_spec(login, host, normalized_remote),
+    ]
+    display = "rsync -avzP " + " ".join([normalized_local, _remote_spec(login, host, normalized_remote)])
+
+    env = os.environ.copy()
+    sshpass = shutil.which("sshpass")
+    if sshpass and password:
+        env["SSHPASS"] = password
+        command = [sshpass, "-e"] + command
+        auth_method = "active dashboard SSH password via sshpass"
+    elif password:
+        askpass = tempfile.NamedTemporaryFile("w", delete=False, prefix="apuana-askpass-", suffix=".sh")
+        askpass.write("#!/bin/sh\nprintf '%s\\n' \"$APUANA_RSYNC_PASSWORD\"\n")
+        askpass.close()
+        askpass_path = askpass.name
+        os.chmod(askpass_path, 0o700)
+        env["APUANA_RSYNC_PASSWORD"] = password
+        env["SSH_ASKPASS"] = askpass_path
+        env["SSH_ASKPASS_REQUIRE"] = "force"
+        env.setdefault("DISPLAY", "apuana-dashboard:0")
+        auth_method = "active dashboard SSH password via SSH_ASKPASS"
+    else:
+        command[3] = command[3] + " -o BatchMode=yes"
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=60 * 60,
+            check=False,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "command": display, "error": "rsync timed out.", "stdout": "", "stderr": ""}
+    except Exception as exc:
+        return {"ok": False, "command": display, "error": f"Failed to start rsync: {exc}", "stdout": "", "stderr": str(exc)}
+    finally:
+        if askpass_path:
+            try:
+                os.unlink(askpass_path)
+            except OSError:
+                pass
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        hint = f" Auth attempted with {auth_method}."
+        if "Permission denied" in stderr or "password" in stderr.lower() or "askpass" in stderr.lower():
+            hint += " The dashboard uses the login and password captured on the SSH screen; if this Mac blocks non-interactive password prompts, install sshpass or configure an SSH key for this user."
+        return {
+            "ok": False,
+            "code": result.returncode,
+            "command": display,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "error": (stderr or "rsync failed.") + hint,
+            "auth": auth_method,
+        }
+
+    return {
+        "ok": True,
+        "code": 0,
+        "command": display,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "error": "",
+        "auth": auth_method,
+    }
+
+
+def _transfer_task_snapshot(task: dict) -> dict:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    return {
+        "ok": True,
+        "task_id": task.get("id", ""),
+        "status": task.get("status", "running"),
+        "progress": int(task.get("progress") or 0),
+        "local_path": task.get("local_path", ""),
+        "remote_path": task.get("remote_path", ""),
+        "name": task.get("name", ""),
+        "error": task.get("error", ""),
+        "result": result,
+        "started_at": task.get("started_at", 0),
+        "updated_at": task.get("updated_at", 0),
+        "finished_at": task.get("finished_at", 0),
+    }
+
+
+def _update_transfer_task(task_id: str, **patch) -> None:
+    with _transfer_task_lock:
+        task = _transfer_tasks.get(task_id)
+        if not task:
+            return
+        task.update(patch)
+        task["updated_at"] = time.time()
+
+
+def _start_rsync_upload_task(local_path: str, remote_path: str, include_contents: bool) -> dict:
+    normalized_local, local_err = _normalize_local_path(local_path, include_contents)
+    if local_err:
+        return {"ok": False, "error": local_err}
+    local_target = Path(os.path.expandvars(os.path.expanduser(normalized_local.rstrip("/")))).resolve(strict=False)
+    if not local_target.exists():
+        return {"ok": False, "error": f"Local path not found: {local_target}"}
+
+    task_id = uuid.uuid4().hex
+    task = {
+        "id": task_id,
+        "status": "running",
+        "progress": 5,
+        "local_path": str(local_target),
+        "remote_path": remote_path,
+        "name": local_target.name or "Folder",
+        "error": "",
+        "result": {},
+        "started_at": time.time(),
+        "updated_at": time.time(),
+        "finished_at": 0,
+    }
+    with _transfer_task_lock:
+        _transfer_tasks[task_id] = task
+
+    def worker() -> None:
+        _update_transfer_task(task_id, progress=12)
+        result = _execute_rsync_upload(local_path, remote_path, include_contents)
+        now = time.time()
+        if result.get("ok"):
+            _update_transfer_task(task_id, status="done", progress=100, result=result, error="", finished_at=now)
+        else:
+            _update_transfer_task(
+                task_id,
+                status="error",
+                progress=100,
+                result=result,
+                error=result.get("error") or "Upload failed.",
+                finished_at=now,
+            )
+
+    threading.Thread(target=worker, name=f"apuana-upload-{task_id[:8]}", daemon=True).start()
+    return _transfer_task_snapshot(task)
+
+
+def _transfer_task_payload(task_id: str) -> dict:
+    task_id = (task_id or "").strip()
+    if not task_id:
+        return {"ok": False, "error": "Task id is required."}
+    with _transfer_task_lock:
+        task = _transfer_tasks.get(task_id)
+        if not task:
+            return {"ok": False, "error": "Transfer task not found."}
+        return _transfer_task_snapshot(dict(task))
 
 
 def _safe_upload_name(raw: str) -> PurePosixPath:

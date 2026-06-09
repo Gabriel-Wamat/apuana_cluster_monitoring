@@ -1,12 +1,26 @@
-const hist = {run:[], pnd:[], total:[]};
-const MAX_HIST = 30;
+const hist = {
+  run: [],
+  pnd: [],
+  total: [],
+  cpuRun: [],
+  cpuPending: [],
+  requestedRam: [],
+  loginRam: [],
+  load1: [],
+  load5: [],
+  load15: [],
+  gpus: [],
+};
+const MAX_HIST = 48;
+let performanceChartMode = 'hardware';
 const SPARKLINE_COLOR = 'var(--spark)';
 const sparkRegistry = new Map();
 let sparkFrame = null;
 let _last = {};
 let transferState = {user:'', host:'slurm-client1.cin.ufpe.br', home:'', current:'', selectedKind:'', selectedPath:''};
 let downloadState = {localFolder:''};
-let uploadState = {files:[]};
+let uploadState = {files:[], localPath:'', localKind:''};
+let uploadTasks = [];
 let transferFeedbackState = {type:'idle', mode:'', title:'Ready', message:'Select a remote item or choose a local folder to start.', details:'', command:'', canRetry:false};
 let transferBrowseTimer = null;
 let lastTransferBrowseKey = '';
@@ -33,7 +47,7 @@ const codeViewModeByPath = new Map();
 const codeDraftCache = new Map();
 const codeDirtyPaths = new Set();
 const codeSavingPaths = new Set();
-let codeTerminalState = {open:false, id:'', output:'', status:'idle', host:'', login:'', polling:false, pollTimer:null, starting:false, startPromise:null, pendingInput:''};
+let codeTerminalState = {open:false, id:'', status:'idle', host:'', login:'', backend:'', seq:0, polling:false, pollTimer:null, eventSource:null, streaming:false, starting:false, startPromise:null, pendingInput:'', term:null, cols:0, rows:0};
 let gpuState = {jobId:'', response:null, raw:'', rawVisible:false, loadingId:''};
 let jobState = {raw:'', rawVisible:false, inspectedId:'', loadingId:''};
 let logState = {items:[], folders:[], loaded:false, folder:'', parent:'', home:'', mode:'folders', error:'', history:[]};

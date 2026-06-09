@@ -1,5 +1,6 @@
 import os
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -11,6 +12,7 @@ _terminal_lock = threading.RLock()
 _terminal = None
 _MAX_INPUT_BYTES = 8192
 _MAX_READ_BYTES = 131072
+_MAX_TERMINAL_HISTORY = 180000
 
 
 class _ParamikoTerminal:
@@ -77,7 +79,7 @@ class _ParamikoTerminal:
 
 
 class _OpenSshTerminal:
-    def __init__(self, target: str, cols: int, rows: int) -> None:
+    def __init__(self, target: str, cols: int, rows: int, password: str = "") -> None:
         self.target = target
         self.proc = None
         self.master_fd = None
@@ -102,8 +104,9 @@ class _OpenSshTerminal:
             master, slave = pty.openpty()
             self.master_fd = master
             self._resize_pty(cols, rows)
+            batch_mode = "no" if password else "yes"
             self.proc = subprocess.Popen(
-                ["ssh", "-tt", "-o", "BatchMode=yes", target],
+                ["ssh", "-tt", "-o", f"BatchMode={batch_mode}", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", target],
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,
@@ -112,6 +115,20 @@ class _OpenSshTerminal:
             os.close(slave)
             flags = fcntl.fcntl(master, fcntl.F_GETFL)
             fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            if password:
+                self._complete_password_auth(password)
+
+    def _append_buffer(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        with self._buffer_lock:
+            self._buffer.extend(chunk)
+
+    def _drain_buffer(self, limit: int) -> bytes:
+        with self._buffer_lock:
+            raw = bytes(self._buffer[:limit])
+            del self._buffer[:limit]
+        return raw
 
     def _read_pipe_loop(self) -> None:
         if self.proc is None or self.proc.stdout is None:
@@ -120,8 +137,45 @@ class _OpenSshTerminal:
             chunk = self.proc.stdout.read(4096)
             if not chunk:
                 break
-            with self._buffer_lock:
-                self._buffer.extend(chunk)
+            self._append_buffer(chunk)
+
+    def _complete_password_auth(self, password: str) -> None:
+        if os.name == "nt" or self.master_fd is None:
+            return
+        import select
+
+        deadline = time.time() + 8.0
+        sent_password = False
+        sent_at = 0.0
+        tail = ""
+
+        while time.time() < deadline and self.is_alive():
+            ready, _, _ = select.select([self.master_fd], [], [], 0.12)
+            if not ready:
+                if sent_password and time.time() - sent_at > 0.7:
+                    break
+                continue
+            try:
+                chunk = os.read(self.master_fd, 4096)
+            except (BlockingIOError, OSError):
+                continue
+            if not chunk:
+                break
+
+            self._append_buffer(chunk)
+            tail = (tail + chunk.decode("utf-8", errors="replace")).lower()[-4000:]
+
+            if "are you sure you want to continue connecting" in tail:
+                self.close()
+                raise RuntimeError("SSH host key ainda não foi confiada pelo OpenSSH local.")
+
+            if not sent_password and ("password:" in tail or "senha:" in tail):
+                os.write(self.master_fd, password.encode("utf-8") + b"\n")
+                sent_password = True
+                sent_at = time.time()
+
+        if not self.is_alive():
+            raise RuntimeError("OpenSSH local encerrou antes de abrir o terminal.")
 
     def _resize_pty(self, cols: int, rows: int) -> None:
         if self.master_fd is None or os.name == "nt":
@@ -139,18 +193,19 @@ class _OpenSshTerminal:
         return self.proc is not None and self.proc.poll() is None
 
     def read(self, limit: int = _MAX_READ_BYTES) -> str:
+        buffered = self._drain_buffer(limit)
         if os.name == "nt":
-            with self._buffer_lock:
-                raw = bytes(self._buffer[:limit])
-                del self._buffer[:limit]
+            raw = buffered
             return raw.decode("utf-8", errors="replace") if raw else ""
 
         if self.master_fd is None:
-            return ""
+            return buffered.decode("utf-8", errors="replace") if buffered else ""
         import select
 
         chunks: list[bytes] = []
-        total = 0
+        if buffered:
+            chunks.append(buffered)
+        total = len(buffered)
         while total < limit:
             ready, _, _ = select.select([self.master_fd], [], [], 0)
             if not ready:
@@ -197,20 +252,92 @@ class _OpenSshTerminal:
 
 
 class _TerminalSession:
-    def __init__(self, session_id: str, auth_token: str, login: str, host: str, backend) -> None:
+    def __init__(self, session_id: str, auth_token: str, login: str, host: str, backend, backend_name: str) -> None:
         self.id = session_id
         self.auth_token = auth_token
         self.login = login
         self.host = host
         self.backend = backend
+        self.backend_name = backend_name
         self.created_at = time.time()
         self.updated_at = self.created_at
+        self._condition = threading.Condition()
+        self._chunks: list[tuple[int, str]] = []
+        self._history_chars = 0
+        self._seq = 0
+        self._read_seq = 0
+        self._closed = False
+        self._reader = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader.start()
 
     def is_alive(self) -> bool:
-        return self.backend is not None and self.backend.is_alive()
+        return self.backend is not None and self.backend.is_alive() and not self._closed
+
+    @property
+    def sequence(self) -> int:
+        with self._condition:
+            return self._seq
+
+    def _append_output(self, text: str) -> None:
+        if not text:
+            return
+        with self._condition:
+            self._seq += 1
+            self._chunks.append((self._seq, text))
+            self._history_chars += len(text)
+            while self._chunks and self._history_chars > _MAX_TERMINAL_HISTORY:
+                _, old = self._chunks.pop(0)
+                self._history_chars -= len(old)
+            self.updated_at = time.time()
+            self._condition.notify_all()
+
+    def _reader_loop(self) -> None:
+        while self.backend is not None and self.backend.is_alive():
+            try:
+                output = self.backend.read()
+            except Exception as exc:
+                self._append_output(f"\r\n[Apuana Monitor] terminal read failed: {exc}\r\n")
+                break
+            if output:
+                self._append_output(output)
+                continue
+            time.sleep(0.025)
+
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+    def _collect_since_locked(self, since_seq: int, limit: int = _MAX_READ_BYTES) -> tuple[int, str]:
+        chunks: list[str] = []
+        total = 0
+        current = self._seq
+        for seq, text in self._chunks:
+            if seq <= since_seq:
+                continue
+            if total >= limit:
+                break
+            chunk = text[: max(0, limit - total)]
+            chunks.append(chunk)
+            total += len(chunk)
+            current = seq
+        return current, "".join(chunks)
 
     def read(self) -> str:
-        return self.backend.read()
+        with self._condition:
+            seq, output = self._collect_since_locked(self._read_seq)
+            self._read_seq = seq
+            return output
+
+    def wait_output(self, since_seq: int, timeout: float = 25.0) -> tuple[int, str, bool]:
+        deadline = time.time() + max(0.2, timeout)
+        with self._condition:
+            while self._seq <= since_seq and not self._closed:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                self._condition.wait(min(remaining, 1.0))
+            seq, output = self._collect_since_locked(since_seq)
+            return seq, output, not self._closed
 
     def send(self, data: str) -> None:
         self.backend.send(data)
@@ -219,6 +346,9 @@ class _TerminalSession:
         self.backend.resize(cols, rows)
 
     def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
         if self.backend is not None:
             self.backend.close()
 
@@ -284,6 +414,50 @@ def _safe_cwd(home: str, raw_cwd: str) -> str:
     return ""
 
 
+def _openssh_target(session: dict) -> str:
+    return str(session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}")
+
+
+def _prefer_local_openssh(session: dict) -> bool:
+    if not shutil.which("ssh"):
+        return False
+    if os.name == "nt":
+        return False
+    auth_mode = str(session.get("auth_mode") or "")
+    if auth_mode == "openssh":
+        return True
+    if session.get("password"):
+        return True
+    # Passwordless Paramiko sessions usually mean local SSH config/agent works too.
+    # Prefer a real local PTY in this case so the browser mirrors a native terminal.
+    return not session.get("password") and bool(session.get("ssh_target") or session.get("login"))
+
+
+def _open_terminal_backend(session: dict, cols: int, rows: int):
+    local_error = ""
+    if _prefer_local_openssh(session):
+        try:
+            backend = _OpenSshTerminal(_openssh_target(session), cols, rows, password=str(session.get("password") or ""))
+            time.sleep(0.08)
+            if backend.is_alive():
+                return backend, "local-openssh"
+            local_error = backend.read().strip()
+            backend.close()
+        except Exception as exc:
+            local_error = str(exc)
+
+    client = _ensure_active_client(session)
+    channel = client.invoke_shell(term="xterm-256color", width=cols, height=rows)
+    channel.settimeout(0.0)
+    backend = _ParamikoTerminal(channel)
+    if local_error:
+        try:
+            backend.send(f"printf '%s\\n' {shlex.quote('[Apuana Monitor] local OpenSSH indisponível; usando sessão SSH segura do dashboard.')}\n")
+        except Exception:
+            pass
+    return backend, "paramiko"
+
+
 def _terminal_start_payload(payload: dict) -> dict:
     global _terminal
     session = _session_client()
@@ -307,35 +481,34 @@ def _terminal_start_payload(payload: dict) -> dict:
                     "id": _terminal.id,
                     "host": _terminal.host,
                     "login": _terminal.login,
+                    "backend": _terminal.backend_name,
+                    "seq": _terminal.sequence,
                     "output": _terminal.read(),
                 }
             _close_locked()
 
         try:
-            if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
-                target = session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}"
-                backend = _OpenSshTerminal(target, cols, rows)
-            else:
-                client = _ensure_active_client(session)
-                channel = client.invoke_shell(term="xterm-256color", width=cols, height=rows)
-                channel.settimeout(0.0)
-                backend = _ParamikoTerminal(channel)
+            backend, backend_name = _open_terminal_backend(session, cols, rows)
             _terminal = _TerminalSession(
                 session_id=uuid.uuid4().hex,
                 auth_token=session["token"],
                 login=session["login"],
                 host=session["host"],
                 backend=backend,
+                backend_name=backend_name,
             )
             output = _terminal.read()
             if cwd:
                 _terminal.send(f"cd {shlex.quote(cwd)}\n")
+                time.sleep(0.06)
                 output += _terminal.read()
             return {
                 "ok": True,
                 "id": _terminal.id,
                 "host": _terminal.host,
                 "login": _terminal.login,
+                "backend": _terminal.backend_name,
+                "seq": _terminal.sequence,
                 "output": output,
             }
         except Exception as exc:
@@ -358,7 +531,7 @@ def _terminal_input_payload(payload: dict) -> dict:
         try:
             _terminal.send(data)
             _terminal.updated_at = time.time()
-            return {"ok": True, "output": _terminal.read()}
+            return {"ok": True}
         except Exception as exc:
             _close_locked()
             return _payload_error(str(exc) or "Could not write to terminal.")
@@ -373,6 +546,36 @@ def _terminal_read_payload(terminal_id: str) -> dict:
             return _payload_error("Terminal session ended.")
         _terminal.updated_at = time.time()
         return {"ok": True, "alive": True, "output": _terminal.read()}
+
+
+def _terminal_event_payload(terminal_id: str, since_seq: int, timeout: float = 25.0) -> dict:
+    with _terminal_lock:
+        if _terminal is None or _terminal.id != terminal_id:
+            return _payload_error("Terminal session is not active.")
+        terminal = _terminal
+
+    if not terminal.is_alive():
+        return _payload_error("Terminal session ended.")
+
+    seq, output, alive = terminal.wait_output(since_seq, timeout=timeout)
+    terminal.updated_at = time.time()
+    return {
+        "ok": True,
+        "id": terminal.id,
+        "seq": seq,
+        "output": output,
+        "alive": alive,
+        "backend": terminal.backend_name,
+        "host": terminal.host,
+        "login": terminal.login,
+    }
+
+
+def _terminal_prepare_async(cwd: str = "", cols: int = 120, rows: int = 28) -> None:
+    def run() -> None:
+        _terminal_start_payload({"cwd": cwd, "cols": cols, "rows": rows})
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _terminal_resize_payload(payload: dict) -> dict:

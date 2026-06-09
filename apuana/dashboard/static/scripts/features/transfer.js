@@ -181,7 +181,7 @@ function buildDownloadCommand() {
 function buildUploadCommand() {
   const remote = getUploadRemotePath();
   if (!transferState.user || !transferState.host) return 'Waiting for user and host from /api...';
-  if (!uploadState.files.length) return 'Choose a local file or folder.';
+  if (!uploadState.files.length && !uploadState.localPath) return 'Choose a local file or folder.';
   if (!remote) return 'Enter an Apuana destination path.';
   return `Ready to upload to ${remote}`;
 }
@@ -372,6 +372,8 @@ function clearDownloadSelection() {
 function uploadFilesFromInput(input) {
   const files = Array.from(input?.files || []);
   uploadState.files = files;
+  uploadState.localPath = '';
+  uploadState.localKind = '';
   renderUploadSelection();
   refreshTransferCommands();
   if (files.length) {
@@ -397,13 +399,59 @@ function chooseUploadFile() {
   chooseUploadInput('upload-picker-file');
 }
 
-function chooseUploadFolder() {
-  chooseUploadInput('upload-picker-folder');
+async function chooseUploadFolder() {
+  const box = $('upload-command');
+  if (box) box.textContent = 'Opening local folder picker...';
+  transferSetFeedback?.('running', {
+    mode: 'upload',
+    title: 'Opening folder picker',
+    message: 'Choose the local folder to import to Apuana.',
+  });
+  try {
+    const response = await apiFetch('/api/local/folder-picker', {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      transferSetFeedback?.('idle', {
+        mode: 'upload',
+        title: data?.canceled ? 'Folder selection canceled' : 'Could not choose folder',
+        message: data?.canceled ? 'No local folder was changed.' : (data?.error || 'Could not choose local folder.'),
+      });
+      if (box) box.textContent = buildUploadCommand();
+      return null;
+    }
+    uploadState.files = [];
+    uploadState.localPath = data.path || '';
+    uploadState.localKind = 'directory';
+    ['upload-picker-file'].forEach(id => {
+      const input = $(id);
+      if (input) input.value = '';
+    });
+    renderUploadSelection();
+    refreshTransferCommands();
+    transferSetFeedback?.('idle', {
+      mode: 'upload',
+      title: 'Local folder selected',
+      message: buildUploadCommand(),
+    });
+    return uploadState.localPath;
+  } catch (err) {
+    const message = `Could not choose local folder: ${err?.message || 'unknown error'}`;
+    if (box) box.textContent = message;
+    transferSetFeedback?.('error', {
+      mode: 'upload',
+      title: 'Could not choose folder',
+      message,
+      details: message,
+    });
+    return null;
+  }
 }
 
 function clearUploadSelection() {
   uploadState.files = [];
-  ['upload-picker-file', 'upload-picker-folder'].forEach(id => {
+  uploadState.localPath = '';
+  uploadState.localKind = '';
+  ['upload-picker-file'].forEach(id => {
     const input = $(id);
     if (input) input.value = '';
   });
@@ -666,8 +714,14 @@ function renderUploadSelection() {
   const clear = $('upload-clear');
   if (!box) return;
   const files = uploadState.files || [];
-  box.classList.toggle('ready', files.length > 0);
-  if (clear) clear.classList.toggle('hidden', files.length === 0);
+  const localPath = String(uploadState.localPath || '').trim();
+  const hasSelection = files.length > 0 || !!localPath;
+  box.classList.toggle('ready', hasSelection);
+  if (clear) clear.classList.toggle('hidden', !hasSelection);
+  if (localPath) {
+    if (text) text.textContent = `Folder - ${localPath}`;
+    return;
+  }
   if (!files.length) {
     if (text) text.textContent = 'No local item selected.';
     return;
@@ -696,6 +750,72 @@ function formatBytes(bytes) {
   return `${bytes} B`;
 }
 
+function basenameLocalPath(path) {
+  return String(path || '').replace(/\/+$/, '').split('/').filter(Boolean).pop() || 'Folder';
+}
+
+function createUploadTask(localPath, remotePath) {
+  const id = `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const task = {
+    id,
+    localPath,
+    remotePath: normalizeRemotePath(remotePath),
+    name: basenameLocalPath(localPath),
+    status: 'running',
+    error: '',
+    startedAt: Date.now(),
+  };
+  uploadTasks = [task, ...(uploadTasks || [])].slice(0, 8);
+  if (typeof refreshRemoteUploadPlaceholders === 'function') refreshRemoteUploadPlaceholders();
+  const timer = setInterval(() => {
+    if (!uploadTasks.some(item => item.id === id && item.status === 'running')) {
+      clearInterval(timer);
+      return;
+    }
+    if (typeof refreshRemoteUploadPlaceholders === 'function') refreshRemoteUploadPlaceholders();
+  }, 1200);
+  return task;
+}
+
+function updateUploadTask(id, patch = {}) {
+  uploadTasks = (uploadTasks || []).map(task => task.id === id ? {...task, ...patch} : task);
+  if (typeof refreshRemoteUploadPlaceholders === 'function') refreshRemoteUploadPlaceholders();
+}
+
+function finishUploadTaskSoon(id) {
+  setTimeout(() => {
+    uploadTasks = (uploadTasks || []).filter(task => task.id !== id);
+    if (typeof refreshRemoteUploadPlaceholders === 'function') refreshRemoteUploadPlaceholders();
+  }, 4500);
+}
+
+async function pollUploadTask(localTaskId, serverTaskId, remotePath) {
+  let lastPayload = {};
+  for (let attempt = 0; attempt < 720; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, attempt < 4 ? 700 : 1500));
+    const response = await apiFetch(`/api/transfer/task?id=${encodeURIComponent(serverTaskId)}`);
+    const data = await response.json();
+    lastPayload = data;
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Upload status unavailable.');
+    }
+    updateUploadTask(localTaskId, {
+      status: data.status || 'running',
+      progress: Number(data.progress || 0),
+      error: data.error || '',
+    });
+    if (data.status === 'done') {
+      return data;
+    }
+    if (data.status === 'error') {
+      throw new Error(data.error || data.result?.error || 'Upload failed.');
+    }
+  }
+  const message = `Upload is still running for ${remotePath}.`;
+  updateUploadTask(localTaskId, {status: 'running', error: ''});
+  return {...lastPayload, ok: true, status: 'running', message};
+}
+
 async function uploadSelectedToApuana() {
   const box = $('upload-command');
   if (!box) return;
@@ -706,7 +826,8 @@ async function uploadSelectedToApuana() {
     return;
   }
   const remote = getUploadRemotePath();
-  if (!uploadState.files.length) {
+  const localPath = String(uploadState.localPath || '').trim();
+  if (!uploadState.files.length && !localPath) {
     const message = 'Choose a local file or folder first.';
     box.textContent = message;
     transferSetFeedback?.('error', {mode:'upload', title:'No local item selected', message, details:message});
@@ -716,6 +837,94 @@ async function uploadSelectedToApuana() {
     const message = 'Enter an Apuana destination path.';
     box.textContent = message;
     transferSetFeedback?.('error', {mode:'upload', title:'No remote destination', message, details:message});
+    return;
+  }
+
+  if (localPath) {
+    const payload = {
+      mode: 'upload',
+      localPath,
+      remotePath: remote,
+      includeContents: false,
+    };
+    const task = createUploadTask(localPath, remote);
+    uploadState.files = [];
+    uploadState.localPath = '';
+    uploadState.localKind = '';
+    renderUploadSelection();
+    refreshTransferCommands();
+    closeImportModal();
+    box.textContent = 'Uploading selected folder with the active SSH session...';
+    if (typeof setRemoteExplorerStatus === 'function') {
+      setRemoteExplorerStatus('ok', `Importing ${basenameLocalPath(localPath)} to ${remote}...`);
+    }
+    transferSetFeedback?.('running', {
+      mode: 'upload',
+      title: 'Uploading',
+      message: `Sending ${localPath} to ${remote}.`,
+    });
+    try {
+      const response = await apiFetch('/api/transfer/rsync-upload/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const start = await response.json();
+      if (!response.ok || !start.ok) {
+        throw new Error(start.error || 'Upload failed to start.');
+      }
+      updateUploadTask(task.id, {
+        serverTaskId: start.task_id,
+        progress: Number(start.progress || 8),
+        status: start.status || 'running',
+      });
+      const status = await pollUploadTask(task.id, start.task_id, remote);
+      const result = status.result || status;
+      const details = transferDetailText?.(result) || '';
+      box.textContent = [
+        status.status === 'running' ? 'Upload still running.' : result.ok ? 'Upload finished.' : 'Upload failed.',
+        `$ ${result.command || 'upload selected folder'}`,
+        result.stdout || '',
+        result.stderr ? `stderr:\n${result.stderr}` : '',
+        !result.ok ? `error:\n${result.error || 'upload failed.'}` : '',
+      ].filter(Boolean).join('\n\n') || 'Upload finished.';
+      transferSetFeedback?.(status.status === 'running' ? 'running' : result.ok ? 'success' : 'error', {
+        mode: 'upload',
+        title: status.status === 'running' ? 'Upload still running' : result.ok ? 'Upload completed' : 'Upload failed',
+        message: status.status === 'running' ? `Import is still running in the background for ${remote}.` : result.ok ? `${localPath} sent to ${remote}.` : (result.error || 'upload failed.'),
+        details,
+        command: result.command || '',
+        canRetry: !result.ok,
+      });
+      if (status.status === 'running') {
+        updateUploadTask(task.id, {status: 'running', progress: 88, error: ''});
+      } else if (result.ok) {
+        updateUploadTask(task.id, {status: 'done', error: ''});
+        finishUploadTaskSoon(task.id);
+        if (typeof loadRemoteExplorer === 'function') {
+          loadRemoteExplorer(remoteExplorerState.path || transferState.current || transferState.home, undefined, {force: true})
+            .then(() => {
+              if (typeof setRemoteExplorerStatus === 'function') {
+                setRemoteExplorerStatus('ok', `Import completed to ${remote}.`);
+              }
+            })
+            .catch(() => {});
+        }
+      } else {
+        updateUploadTask(task.id, {status: 'error', error: result.error || 'Import failed'});
+      }
+    } catch (err) {
+      const message = `Upload failed: ${err?.message || 'unknown error'}`;
+      updateUploadTask(task.id, {status: 'error', error: message});
+      box.textContent = `${message}\n\nLog in again if the SSH session expired.`;
+      transferSetFeedback?.('error', {
+        mode: 'upload',
+        title: 'Upload failed',
+        message,
+        details: `${message}\n\nLog in again if the SSH session expired.`,
+        canRetry: true,
+      });
+    }
     return;
   }
 

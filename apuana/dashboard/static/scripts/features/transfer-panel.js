@@ -74,6 +74,7 @@ function renderTransferPanel() {
   const downloadTarget = downloadState.localFolder || $('download-local')?.value.trim() || '';
   const uploadRemote = getUploadRemotePath();
   const uploadFiles = uploadState.files || [];
+  const uploadLocalPath = String(uploadState.localPath || '').trim();
   const selectedCard = $('transfer-selected-card');
   const downloadSourceChip = $('download-source-chip');
 
@@ -100,7 +101,7 @@ function renderTransferPanel() {
   }
 
   const downloadReady = !!remotePath && !!downloadTarget;
-  const uploadReady = uploadFiles.length > 0 && !!uploadRemote;
+  const uploadReady = (uploadFiles.length > 0 || !!uploadLocalPath) && !!uploadRemote;
   if ($('download-run-rsync')) $('download-run-rsync').disabled = !downloadReady;
   if ($('upload-run-selected')) $('upload-run-selected').disabled = !uploadReady;
   renderTransferFeedback();

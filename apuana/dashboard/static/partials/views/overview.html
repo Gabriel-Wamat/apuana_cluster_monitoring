@@ -1,6 +1,53 @@
   <!-- VIEW: OVERVIEW -->
   <div class="view active" id="view-overview">
     <div class="kpi-grid" id="kpis"></div>
+    <div class="sec performance-sec">
+      <div class="sec-title">Performance telemetry</div>
+      <div class="performance-card">
+        <div class="performance-head">
+          <div class="performance-card-heading">
+            <div class="performance-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M3 12h4l2-6 4 12 3-8 2 2h3"/>
+                <path d="M4 20h16"/>
+              </svg>
+            </div>
+            <div>
+              <div class="performance-title" id="performance-chart-title">Hardware trend</div>
+              <p id="performance-chart-subtitle">Load, memory and allocated resources from recent Apuana samples.</p>
+            </div>
+          </div>
+          <div class="performance-meta" aria-label="Performance chart mode">
+            <button class="active" type="button" data-performance-mode="hardware" aria-label="Hardware trend" title="Hardware trend">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 19V5"/>
+                <path d="M4 19h16"/>
+                <path d="m7 15 3-4 3 2 4-6"/>
+                <path d="M17 7h3v3"/>
+              </svg>
+            </button>
+            <button type="button" data-performance-mode="queue" aria-label="Queue performance" title="Queue performance">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h13"/>
+                <path d="M8 12h13"/>
+                <path d="M8 18h13"/>
+                <path d="M3 6h.01"/>
+                <path d="M3 12h.01"/>
+                <path d="M3 18h.01"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="performance-chart-wrap">
+          <canvas id="queue-performance-chart" aria-label="Performance telemetry chart"></canvas>
+          <div id="queue-performance-empty" class="performance-empty">Collecting live samples...</div>
+        </div>
+        <div class="performance-foot">
+          <div class="performance-legend" id="performance-chart-legend"></div>
+          <div id="queue-performance-summary" class="performance-summary">-</div>
+        </div>
+      </div>
+    </div>
     <div class="sec resource-sec">
       <div class="sec-title">CPU and memory usage</div>
       <div id="resource-summary"></div>
