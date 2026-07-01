@@ -378,7 +378,7 @@ def _execute_rsync_download(local_path: str, remote_path: str, include_contents:
 
     rsync = shutil.which("rsync")
     if not rsync:
-        return {"ok": False, "error": "rsync was not found on this local machine."}
+        return _execute_transfer("download", local_path, remote_path, include_contents)
 
     base_command = [
         rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),
@@ -412,7 +412,7 @@ def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: b
 
     rsync = shutil.which("rsync")
     if not rsync:
-        return {"ok": False, "error": "rsync was not found on this local machine."}
+        return _execute_transfer("upload", local_path, remote_path, include_contents)
 
     base_command = [
         rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),

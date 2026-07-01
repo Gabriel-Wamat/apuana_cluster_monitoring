@@ -412,7 +412,7 @@ StartupNotify=false
     return launcher
 
 
-def ensure_windows_launcher(target_dir: Path) -> Path:
+def _ensure_windows_vbs_launcher(target_dir: Path) -> Path:
     launcher = target_dir / f"{LAUNCHER_NAME}.vbs"
     target_dir.mkdir(parents=True, exist_ok=True)
     root = str(ROOT).replace('"', '""')
@@ -429,6 +429,39 @@ command = Chr(34) & python & Chr(34) & " " & Chr(34) & launcher & Chr(34)
 shell.Run command, 0, False
 """, encoding="utf-8")
     return launcher
+
+
+def ensure_windows_launcher(target_dir: Path) -> Path:
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    python_exe = ROOT / ".venv" / "Scripts" / "pythonw.exe"
+    if not python_exe.exists():
+        python_exe = Path(shutil.which("pythonw") or shutil.which("python") or "pythonw")
+
+    ico = ROOT / "apuana" / "dashboard" / "static" / "assets" / "apuana-app-icon.ico"
+    icon_line = f"$lnk.IconLocation = '{ico}'" if ico.exists() else ""
+
+    lnk = target_dir / f"{LAUNCHER_NAME}.lnk"
+    ps = (
+        f"$ws = New-Object -ComObject WScript.Shell; "
+        f"$lnk = $ws.CreateShortcut('{lnk}'); "
+        f"$lnk.TargetPath = '{python_exe}'; "
+        f"$lnk.Arguments = '\"{DESKTOP_LAUNCHER}\"'; "
+        f"$lnk.WorkingDirectory = '{ROOT}'; "
+        f"{icon_line + '; ' if icon_line else ''}"
+        f"$lnk.Save()"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, timeout=15,
+        )
+        if result.returncode == 0 and lnk.exists():
+            return lnk
+    except Exception:
+        pass
+
+    return _ensure_windows_vbs_launcher(target_dir)
 
 
 def ensure_desktop_launcher() -> Optional[Path]:
