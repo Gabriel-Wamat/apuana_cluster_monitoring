@@ -14,8 +14,8 @@ def _find_project_root() -> Path:
         if candidate == candidate.parent:
             break
         candidate = candidate.parent
-    # fallback: 3 níveis acima de server/ → dashboard/ → apuana/ → project root
-    return Path(__file__).resolve().parent.parent.parent
+    # fallback: config.py → server/ → dashboard/ → apuana/ → project root (4 levels)
+    return Path(__file__).resolve().parent.parent.parent.parent
 
 
 def _load_config() -> Dict[str, Any]:
