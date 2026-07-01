@@ -67,7 +67,7 @@ Depois escolha uma das formas abaixo. Em todos os sistemas, a primeira execuçã
 | --- | --- | --- |
 | macOS | `./run.sh` | `Apuana Monitor.app` na Área de Trabalho |
 | Linux | `./run.sh` | atalho `.desktop` na Área de Trabalho |
-| Windows | `run.bat` | launcher `Apuana Monitor` na Área de Trabalho |
+| Windows | `./run.bat` | launcher `Apuana Monitor` na Área de Trabalho |
 
 ### 1. macOS
 
@@ -102,7 +102,7 @@ Use esta opção para iniciar o servidor local e criar um atalho de Área de Tra
 No Windows, use o script `.bat`:
 
 ```bat
-run.bat
+./run.bat
 ```
 
 Em qualquer uma das opções, a primeira execução instala dependências apenas quando necessário e abre a interface local em:
