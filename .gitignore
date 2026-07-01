@@ -1,10 +1,7 @@
-# Local dashboard virtual environment
 .venv/
 .venv*/
 apuana/.venv-monitor/
 **/.venv-monitor/
-
-# Python generated artifacts
 __pycache__/
 **/__pycache__/
 *.py[cod]
@@ -12,24 +9,16 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-# Runtime logs and pids
 *.log
 *.pid
 apuana/streamlit-*.log
 apuana/streamlit-*.pid
 apuana/*.pid
-
-# Local agent/editor state
 .claude/
 .codex/
 .DS_Store
-
-# Planning drafts kept local, not part of the runnable release
 design/
 docs/
 research_rag/
 apuana/dashboard/static/content/*.md
-
-# Local-only author protection key — never publish
 UNPROTECT.md
