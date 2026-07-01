@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, Optional
 
 
 class ResearchValidationError(ValueError):
@@ -46,7 +46,7 @@ def env_name(value: str) -> str:
     return cleaned or "VALUE"
 
 
-def normalize_resources(raw: dict | None) -> dict:
+def normalize_resources(raw: Optional[dict]) -> dict:
     raw = raw or {}
     partition = str(raw.get("partition") or DEFAULT_RESOURCES["partition"]).strip()
     if partition not in PARTITION_QOS:
@@ -89,7 +89,7 @@ def normalize_resources(raw: dict | None) -> dict:
     }
 
 
-def normalize_params(template: dict, raw: dict | None, run_id: str) -> dict:
+def normalize_params(template: dict, raw: Optional[dict], run_id: str) -> dict:
     raw = raw or {}
     result = {}
     for field in template.get("fields", []):

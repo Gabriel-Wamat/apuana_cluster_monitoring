@@ -184,11 +184,17 @@ def _job_info_payload(raw_job_id: str) -> dict:
 
 def _load_payload() -> dict:
     cpu_count = os.cpu_count() or 0
+    load1 = load5 = load15 = 0.0
     try:
+        # Linux
         parts = Path("/proc/loadavg").read_text(encoding="utf-8").split()
-        load1, load5, load15 = (float(parts[0]), float(parts[1]), float(parts[2]))
+        load1, load5, load15 = float(parts[0]), float(parts[1]), float(parts[2])
     except Exception:
-        load1 = load5 = load15 = 0.0
+        try:
+            # macOS / BSD via uptime -s not available; use getloadavg()
+            load1, load5, load15 = os.getloadavg()
+        except Exception:
+            pass
 
     return {
         "cpus": cpu_count,
@@ -437,6 +443,9 @@ def _collect() -> None:
     node = socket.gethostname()
     while True:
         session = _session_public()
+        if not session.get("token"):
+            time.sleep(5)
+            continue
         d: dict = {
             "ts": time.strftime("%H:%M:%S"),
             "node": session.get("host") or node,
@@ -485,27 +494,29 @@ def _collect() -> None:
             "home": session.get("home") or "",
         }
 
-        # disk usage (exclude tmpfs / run paths)
-        rc, out, _ = _run(["df", "-h", "--output=size,used,avail,pcent,target"])
+        # disk usage — usa POSIX df (sem --output que é GNU-only)
+        rc, out, _ = _run(["df", "-h"])
         disks = []
         if rc == 0:
             for ln in out.splitlines()[1:]:
                 p = ln.split()
-                if len(p) < 5:
+                # POSIX df: Filesystem Size Used Avail Use% Mounted
+                if len(p) < 6:
                     continue
                 mount = p[-1]
+                pct_field = p[-2]
                 if any(mount == x or mount.startswith(x + "/") for x in ("/run", "/dev", "/sys", "/proc")):
                     continue
                 try:
-                    disks.append({"size": p[0], "used": p[1], "avail": p[2],
-                                  "pct": int(p[3].rstrip("%")), "mount": mount})
+                    disks.append({"size": p[1], "used": p[2], "avail": p[3],
+                                  "pct": int(pct_field.rstrip("%")), "mount": mount})
                 except (ValueError, IndexError):
                     pass
         d["disks"] = disks
 
-        # memory (free -m: MB for arithmetic, human-readable in output)
-        rc, out, _ = _run(["free", "-m"])
+        # memory — Linux: free -m; macOS: vm_stat
         d["mem"] = {}
+        rc, out, _ = _run(["free", "-m"])
         if rc == 0:
             for ln in out.splitlines():
                 if ln.startswith("Mem:"):
@@ -523,6 +534,38 @@ def _collect() -> None:
                             "available_mb": avail,
                             "pct": round(used / total * 100) if total else 0,
                         }
+        if not d["mem"]:
+            # macOS fallback via vm_stat
+            rc, out, _ = _run(["vm_stat"])
+            if rc == 0:
+                page_size = 4096
+                stats: dict[str, int] = {}
+                for ln in out.splitlines():
+                    if ":" in ln:
+                        k, _, v = ln.partition(":")
+                        try:
+                            stats[k.strip()] = int(v.strip().rstrip("."))
+                        except ValueError:
+                            pass
+                wired = stats.get("Pages wired down", 0)
+                active = stats.get("Pages active", 0)
+                inactive = stats.get("Pages inactive", 0)
+                free_pages = stats.get("Pages free", 0)
+                total_pages = wired + active + inactive + free_pages
+                if total_pages:
+                    total_mb = total_pages * page_size // (1024 * 1024)
+                    used_mb = (wired + active) * page_size // (1024 * 1024)
+                    avail_mb = (inactive + free_pages) * page_size // (1024 * 1024)
+                    d["mem"] = {
+                        "total": f"{total_mb // 1024}Gi",
+                        "used": f"{used_mb // 1024}Gi",
+                        "available": f"{avail_mb // 1024}Gi",
+                        "free": f"{free_pages * page_size // (1024 * 1024) // 1024}Gi",
+                        "total_mb": total_mb,
+                        "used_mb": used_mb,
+                        "available_mb": avail_mb,
+                        "pct": round(used_mb / total_mb * 100) if total_mb else 0,
+                    }
 
         # uptime / load average
         rc, out, _ = _run(["uptime"])

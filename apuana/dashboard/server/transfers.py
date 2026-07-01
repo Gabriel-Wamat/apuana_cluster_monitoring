@@ -94,9 +94,11 @@ def _sftp_is_dir(sftp, remote_path: str) -> bool:
 
 
 def _sftp_mkdirs(sftp, remote_dir: str, home_root: str) -> None:
-    target = PurePosixPath(remote_dir).as_posix()
-    home = PurePosixPath(home_root).as_posix()
-    if not target.startswith(home):
+    target = PurePosixPath(remote_dir)
+    home = PurePosixPath(home_root)
+    try:
+        target.relative_to(home)
+    except ValueError:
         raise RuntimeError("Access denied: remote destination must stay inside your home.")
 
     current = PurePosixPath(home)
@@ -273,52 +275,16 @@ def _remote_spec(login: str, host: str, remote_path: str) -> str:
     return f"{login}@{host}:{remote_path}"
 
 
-def _execute_rsync_download(local_path: str, remote_path: str, include_contents: bool) -> dict:
-    session = _session_client()
-    login = session.get("login") or ""
-    host = TRANSFER_HOST or session.get("host") or ""
-    remote_home = session.get("home") or f"/home/CIN/{login}"
-    password = session.get("password") or ""
-    if not login or not host:
-        return {"ok": False, "error": "SSH login required before executing download."}
-
-    normalized_remote, remote_err = _normalize_remote_path(remote_path, remote_home, include_contents)
-    if remote_err:
-        return {"ok": False, "error": remote_err}
-    normalized_local, local_err = _normalize_local_path(local_path, False)
-    if local_err:
-        return {"ok": False, "error": local_err}
-
-    rsync = shutil.which("rsync")
-    if not rsync:
-        return {"ok": False, "error": "rsync was not found on this local machine."}
-
-    auth_method = "SSH key from local machine"
-    askpass_path = ""
-    ssh_command = [
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        "NumberOfPasswordPrompts=1",
-    ]
-    command = [
-        rsync,
-        "-avzP",
-        "-e",
-        " ".join(ssh_command),
-        _remote_spec(login, host, normalized_remote),
-        normalized_local,
-    ]
-    display = "rsync -avzP " + " ".join([_remote_spec(login, host, normalized_remote), normalized_local])
-
+def _build_rsync_env(password: str, base_command: list, display: str) -> tuple[list, dict, str, str]:
+    """Configura autenticação para rsync. Retorna (command, env, auth_method, askpass_path)."""
     env = os.environ.copy()
+    askpass_path = ""
+    auth_method = "SSH key from local machine"
+
     sshpass = shutil.which("sshpass")
     if sshpass and password:
         env["SSHPASS"] = password
-        command = [sshpass, "-e"] + command
+        command = [sshpass, "-e"] + base_command
         auth_method = "active dashboard SSH password via sshpass"
     elif password:
         askpass = tempfile.NamedTemporaryFile("w", delete=False, prefix="apuana-askpass-", suffix=".sh")
@@ -331,9 +297,16 @@ def _execute_rsync_download(local_path: str, remote_path: str, include_contents:
         env["SSH_ASKPASS_REQUIRE"] = "force"
         env.setdefault("DISPLAY", "apuana-dashboard:0")
         auth_method = "active dashboard SSH password via SSH_ASKPASS"
+        command = base_command
     else:
+        command = list(base_command)
         command[3] = command[3] + " -o BatchMode=yes"
 
+    return command, env, auth_method, askpass_path
+
+
+def _run_rsync(command: list, display: str, env: dict, auth_method: str, askpass_path: str) -> dict:
+    """Executa rsync e retorna payload padronizado."""
     try:
         result = subprocess.run(
             command,
@@ -378,6 +351,43 @@ def _execute_rsync_download(local_path: str, remote_path: str, include_contents:
         "error": "",
         "auth": auth_method,
     }
+
+
+_RSYNC_SSH_OPTIONS = [
+    "ssh",
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "NumberOfPasswordPrompts=1",
+]
+
+
+def _execute_rsync_download(local_path: str, remote_path: str, include_contents: bool) -> dict:
+    session = _session_client()
+    login = session.get("login") or ""
+    host = TRANSFER_HOST or session.get("host") or ""
+    remote_home = session.get("home") or f"/home/CIN/{login}"
+    password = session.get("password") or ""
+    if not login or not host:
+        return {"ok": False, "error": "SSH login required before executing download."}
+
+    normalized_remote, remote_err = _normalize_remote_path(remote_path, remote_home, include_contents)
+    if remote_err:
+        return {"ok": False, "error": remote_err}
+    normalized_local, local_err = _normalize_local_path(local_path, False)
+    if local_err:
+        return {"ok": False, "error": local_err}
+
+    rsync = shutil.which("rsync")
+    if not rsync:
+        return {"ok": False, "error": "rsync was not found on this local machine."}
+
+    base_command = [
+        rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),
+        _remote_spec(login, host, normalized_remote),
+        normalized_local,
+    ]
+    display = "rsync -avzP " + " ".join([_remote_spec(login, host, normalized_remote), normalized_local])
+    command, env, auth_method, askpass_path = _build_rsync_env(password, base_command, display)
+    return _run_rsync(command, display, env, auth_method, askpass_path)
 
 
 def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: bool) -> dict:
@@ -404,91 +414,14 @@ def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: b
     if not rsync:
         return {"ok": False, "error": "rsync was not found on this local machine."}
 
-    auth_method = "SSH key from local machine"
-    askpass_path = ""
-    ssh_command = [
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        "NumberOfPasswordPrompts=1",
-    ]
-    command = [
-        rsync,
-        "-avzP",
-        "-e",
-        " ".join(ssh_command),
+    base_command = [
+        rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),
         normalized_local,
         _remote_spec(login, host, normalized_remote),
     ]
     display = "rsync -avzP " + " ".join([normalized_local, _remote_spec(login, host, normalized_remote)])
-
-    env = os.environ.copy()
-    sshpass = shutil.which("sshpass")
-    if sshpass and password:
-        env["SSHPASS"] = password
-        command = [sshpass, "-e"] + command
-        auth_method = "active dashboard SSH password via sshpass"
-    elif password:
-        askpass = tempfile.NamedTemporaryFile("w", delete=False, prefix="apuana-askpass-", suffix=".sh")
-        askpass.write("#!/bin/sh\nprintf '%s\\n' \"$APUANA_RSYNC_PASSWORD\"\n")
-        askpass.close()
-        askpass_path = askpass.name
-        os.chmod(askpass_path, 0o700)
-        env["APUANA_RSYNC_PASSWORD"] = password
-        env["SSH_ASKPASS"] = askpass_path
-        env["SSH_ASKPASS_REQUIRE"] = "force"
-        env.setdefault("DISPLAY", "apuana-dashboard:0")
-        auth_method = "active dashboard SSH password via SSH_ASKPASS"
-    else:
-        command[3] = command[3] + " -o BatchMode=yes"
-
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=60 * 60,
-            check=False,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "command": display, "error": "rsync timed out.", "stdout": "", "stderr": ""}
-    except Exception as exc:
-        return {"ok": False, "command": display, "error": f"Failed to start rsync: {exc}", "stdout": "", "stderr": str(exc)}
-    finally:
-        if askpass_path:
-            try:
-                os.unlink(askpass_path)
-            except OSError:
-                pass
-
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        hint = f" Auth attempted with {auth_method}."
-        if "Permission denied" in stderr or "password" in stderr.lower() or "askpass" in stderr.lower():
-            hint += " The dashboard uses the login and password captured on the SSH screen; if this Mac blocks non-interactive password prompts, install sshpass or configure an SSH key for this user."
-        return {
-            "ok": False,
-            "code": result.returncode,
-            "command": display,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "error": (stderr or "rsync failed.") + hint,
-            "auth": auth_method,
-        }
-
-    return {
-        "ok": True,
-        "code": 0,
-        "command": display,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "error": "",
-        "auth": auth_method,
-    }
+    command, env, auth_method, askpass_path = _build_rsync_env(password, base_command, display)
+    return _run_rsync(command, display, env, auth_method, askpass_path)
 
 
 def _transfer_task_snapshot(task: dict) -> dict:
@@ -509,6 +442,19 @@ def _transfer_task_snapshot(task: dict) -> dict:
     }
 
 
+_TASK_TTL = 3600  # 1 hora
+
+
+def _purge_old_tasks() -> None:
+    cutoff = time.time() - _TASK_TTL
+    to_remove = [
+        tid for tid, t in _transfer_tasks.items()
+        if t.get("status") in ("done", "error") and t.get("finished_at", 0) < cutoff
+    ]
+    for tid in to_remove:
+        del _transfer_tasks[tid]
+
+
 def _update_transfer_task(task_id: str, **patch) -> None:
     with _transfer_task_lock:
         task = _transfer_tasks.get(task_id)
@@ -516,6 +462,8 @@ def _update_transfer_task(task_id: str, **patch) -> None:
             return
         task.update(patch)
         task["updated_at"] = time.time()
+        if patch.get("status") in ("done", "error"):
+            _purge_old_tasks()
 
 
 def _start_rsync_upload_task(local_path: str, remote_path: str, include_contents: bool) -> dict:

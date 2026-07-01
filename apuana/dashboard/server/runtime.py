@@ -172,7 +172,8 @@ def _connect_ssh(host: str, login: str, password: str = ""):
         raise RuntimeError("paramiko não está instalado no ambiente Python atual.")
     has_password = bool(password)
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
     client.connect(
         hostname=host,
         username=login or None,
@@ -487,14 +488,18 @@ def _run(cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
     if session.get("token"):
         if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
             return _run_openssh(session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}", cmd, timeout)
+        # Reconectar fora do exec_lock para não bloquear outros threads durante handshake
+        client = session.get("client")
+        transport = client.get_transport() if client else None
+        if client is None or transport is None or not transport.is_active():
+            try:
+                client = _connect_ssh(session["host"], session["login"], session.get("password") or "")
+                with _session_lock:
+                    _session["client"] = client
+            except Exception as e:
+                return 1, "", str(e)
         with _ssh_exec_lock:
             try:
-                client = session.get("client")
-                transport = client.get_transport() if client else None
-                if client is None or transport is None or not transport.is_active():
-                    client = _connect_ssh(session["host"], session["login"], session.get("password") or "")
-                    with _session_lock:
-                        _session["client"] = client
                 stdin, stdout, stderr = client.exec_command(shlex.join(cmd), timeout=timeout)
                 _ = stdin
                 out = stdout.read().decode("utf-8", errors="replace").strip()

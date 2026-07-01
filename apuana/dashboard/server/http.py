@@ -1,7 +1,7 @@
 import json
+import secrets
 import shlex
 import socketserver
-import cgi
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -60,6 +60,57 @@ from .transfers import (
     _transfer_task_payload,
     _upload_streams,
 )
+
+def _parse_multipart_upload(headers, rfile) -> tuple[str, list]:
+    """Parse multipart/form-data sem depender do módulo cgi (depreciado no 3.11)."""
+    import io
+    import email.parser as _ep
+
+    content_type = headers.get("Content-Type", "")
+    if "boundary=" not in content_type:
+        return "", []
+
+    boundary = content_type.split("boundary=", 1)[1].strip().encode("latin-1")
+    try:
+        length = int(headers.get("Content-Length", "0"))
+    except ValueError:
+        length = 0
+    raw = rfile.read(length) if length > 0 else b""
+
+    remote_path = ""
+    files: list[tuple[str, object]] = []
+    delimiter = b"--" + boundary
+    parts = raw.split(delimiter)
+    for part in parts[1:]:
+        if part in (b"--\r\n", b"--", b"--\r\n--"):
+            break
+        if part.startswith(b"\r\n"):
+            part = part[2:]
+        if part.endswith(b"\r\n"):
+            part = part[:-2]
+
+        if b"\r\n\r\n" not in part:
+            continue
+        header_block, _, body = part.partition(b"\r\n\r\n")
+        msg = _ep.BytesHeaderParser().parsebytes(header_block + b"\r\n")
+        disposition = msg.get("Content-Disposition", "")
+        params: dict[str, str] = {}
+        for token in disposition.split(";"):
+            token = token.strip()
+            if "=" in token:
+                k, _, v = token.partition("=")
+                params[k.strip().lower()] = v.strip().strip('"')
+
+        field_name = params.get("name", "")
+        filename = params.get("filename", "")
+
+        if field_name == "remotePath" and not filename:
+            remote_path = body.decode("utf-8", errors="replace")
+        elif filename:
+            files.append((filename, io.BytesIO(body)))
+
+    return remote_path, files
+
 
 def _login_failure_payload(exc: Exception) -> tuple[int, dict]:
     detail = str(exc).strip()
@@ -128,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
     def _has_session(self) -> bool:
         token = (self.headers.get(AUTH_HEADER) or "").strip()
         active = _session_token()
-        if token and token == active:
+        if token and active and secrets.compare_digest(token, active):
             return True
         host = (self.headers.get("Host") or "").split(":", 1)[0]
         referer = self.headers.get("Referer") or ""
@@ -231,8 +282,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/transfer/execute":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _execute_transfer(
@@ -245,8 +295,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/transfer/rsync-download":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _execute_rsync_download(
@@ -258,8 +307,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/transfer/rsync-upload":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _execute_rsync_upload(
@@ -271,8 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/transfer/rsync-upload/start":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _start_rsync_upload_task(
@@ -284,23 +331,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/transfer/upload-selected":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={
-                    "REQUEST_METHOD": "POST",
-                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-                },
-            )
-            remote_path = form.getfirst("remotePath", "")
-            raw_files = form["files"] if "files" in form else []
-            if not isinstance(raw_files, list):
-                raw_files = [raw_files]
-            files = [(item.filename or "upload.bin", item.file) for item in raw_files if getattr(item, "filename", "")]
+            remote_path, files = _parse_multipart_upload(self.headers, self.rfile)
             result = _upload_streams(files, remote_path)
             self._json(200 if result.get("ok") else 400, result)
             return
@@ -320,16 +353,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/local/folder-picker":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             result = _choose_local_folder()
             self._json(200 if result.get("ok") else 400, result)
             return
 
         if parsed.path == "/api/code/file":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _code_file_save_payload(payload.get("path") or "", payload.get("content") or "")
@@ -337,8 +368,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/code/create":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _code_create_payload(
@@ -350,8 +380,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/code/delete":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _code_delete_payload(payload.get("path") or "")
@@ -359,8 +388,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/remote/file":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _write_remote_file(payload.get("path") or "", payload.get("content") or "")
@@ -368,8 +396,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/remote/delete":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _delete_remote_path(payload.get("path") or "")
@@ -377,32 +404,28 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/terminal/start":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             result = _terminal_start_payload(self._read_json_body())
             self._json(200 if result.get("ok") else 400, result)
             return
 
         if parsed.path == "/api/terminal/input":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             result = _terminal_input_payload(self._read_json_body())
             self._json(200 if result.get("ok") else 400, result)
             return
 
         if parsed.path == "/api/terminal/resize":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             result = _terminal_resize_payload(self._read_json_body())
             self._json(200 if result.get("ok") else 400, result)
             return
 
         if parsed.path == "/api/terminal/stop":
-            if not self._has_session():
-                self._json(401, {"ok": False, "error": "SSH login required."})
+            if not self._require_auth():
                 return
             payload = self._read_json_body()
             result = _terminal_stop_payload(payload.get("id") or "")
@@ -526,9 +549,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             home = _session_public().get("home") or ""
             result = {}
+            from pathlib import PurePosixPath
+            home_pure = PurePosixPath(home) if home else None
             for key in ("out", "err"):
                 p = qs.get(key, [""])[0].strip()
-                if not p or not p.startswith(home):
+                try:
+                    safe = (
+                        home_pure is not None
+                        and p
+                        and PurePosixPath(p) != home_pure
+                        and PurePosixPath(p).is_relative_to(home_pure)
+                    )
+                except (TypeError, ValueError):
+                    safe = False
+                if not safe:
                     result[key] = ""
                     continue
                 script = f"path={shlex.quote(p)}; home={shlex.quote(home)}; case \"$path\" in \"$home\"/*) tail -n 200 \"$path\" ;; *) exit 2 ;; esac"

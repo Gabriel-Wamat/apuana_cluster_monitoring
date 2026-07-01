@@ -873,15 +873,16 @@ def main() -> int:
     if args.desktop_launch:
         return run_desktop_launch(args, url)
 
+    launcher = ensure_desktop_launcher()
+    if launcher:
+        print(f"[apuana] desktop launcher ready: {launcher}")
+
     if local_port_is_open(str(args.port)):
         print(f"[apuana] dashboard already running at {url}")
         if not args.no_browser:
             open_url(url)
         return 0
 
-    launcher = ensure_desktop_launcher()
-    if launcher:
-        print(f"[apuana] desktop launcher ready: {launcher}")
     python = ensure_venv()
     ensure_deps(python)
 
