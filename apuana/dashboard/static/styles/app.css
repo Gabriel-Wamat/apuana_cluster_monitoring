@@ -414,8 +414,12 @@ body[data-view="code"] .main{padding-top:18px}
 .status-badge.ok{border-color:rgba(20,199,123,.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .deg {background:rgba(240,180,41,.12);color:var(--warn)}
 .badge-beta{background:rgba(90,163,240,.1);color:var(--info);border:1px solid rgba(90,163,240,.22);font-size:9px;padding:2px 7px}
-.nb-badge{display:none;margin-left:auto;pointer-events:none}
-body.sidebar-expanded .nb-badge,.sb.is-expanded .nb-badge{display:inline-flex}
+.nb-beta-overlay{position:absolute;top:4px;left:4px;font-size:7px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;line-height:1;
+  background:rgba(90,163,240,.15);color:var(--info);border:1px solid rgba(90,163,240,.3);
+  border-radius:999px;padding:2px 5px;pointer-events:none}
+body.sidebar-expanded .nb-beta-overlay,.sb.is-expanded .nb-beta-overlay{
+  position:relative;top:auto;left:auto;margin-left:auto;font-size:9px;padding:2px 7px}
 .status-badge.deg{border-color:rgba(240,180,41,.18)}
 .unav{background:rgba(240,85,108,.12);color:var(--danger)}
 .status-badge.unav{border-color:rgba(240,85,108,.18)}
