@@ -4,7 +4,12 @@
       <aside class="code-sidebar">
         <div class="code-sidebar-head">
           <div class="sec-title">Code workspace</div>
-          <button class="code-help-open" id="code-help-open" type="button" aria-label="Open Apuana help" title="Apuana help">?</button>
+          <div class="code-sidebar-head-actions">
+            <button class="code-sidebar-collapse" id="code-sidebar-collapse" type="button" aria-label="Collapse code sidebar" title="Collapse code sidebar" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>
+            </button>
+            <button class="code-help-open" id="code-help-open" type="button" aria-label="Open Apuana help" title="Apuana help">?</button>
+          </div>
         </div>
         <div class="code-control code-folder-picker">
           <label for="code-folder-select">Current folder</label>
@@ -56,13 +61,12 @@
           <div class="code-empty">No file selected.</div>
         </div>
       </section>
-    </div>
-    <section class="code-terminal-panel" id="code-terminal-panel" aria-hidden="true">
+      <section class="code-terminal-panel" id="code-terminal-panel" aria-hidden="true">
       <div class="code-terminal-head">
-        <div class="code-terminal-tabs">
-          <button class="code-terminal-tab active" type="button">
-            <svg viewBox="0 0 24 24"><path d="m4 17 6-5-6-5"/><path d="M12 19h8"/></svg>
-            Terminal
+        <div class="code-terminal-tabs-wrap">
+          <div class="code-terminal-tabs" id="code-terminal-tabs"></div>
+          <button class="code-terminal-new" id="code-terminal-new" type="button" aria-label="New terminal tab" title="New terminal tab">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
           </button>
         </div>
         <div class="code-terminal-meta">
@@ -82,7 +86,8 @@
         <pre id="code-terminal-output"></pre>
         <span class="code-terminal-cursor" id="code-terminal-cursor" aria-hidden="true"></span>
       </div>
-    </section>
+      </section>
+    </div>
 
     <div class="remote-modal" id="code-create-modal" aria-hidden="true">
       <div class="remote-modal-card code-create-card">
@@ -109,6 +114,23 @@
           <div class="remote-modal-actions">
             <button class="mini-btn" type="button" id="code-delete-cancel">Cancel</button>
             <button class="mini-btn danger" type="button" id="code-delete-confirm">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="remote-modal" id="code-conflict-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Remote file conflict">
+      <div class="remote-modal-card code-conflict-card">
+        <div class="remote-modal-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 8v5"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </div>
+        <div>
+          <h3>File changed on Apuana</h3>
+          <p id="code-conflict-copy">The remote file changed after it was opened. Reload it or overwrite it explicitly.</p>
+          <div class="remote-modal-actions">
+            <button class="mini-btn" type="button" id="code-conflict-cancel">Keep editing</button>
+            <button class="mini-btn" type="button" id="code-conflict-reload">Reload remote</button>
+            <button class="mini-btn danger" type="button" id="code-conflict-overwrite">Overwrite</button>
           </div>
         </div>
       </div>

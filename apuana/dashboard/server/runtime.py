@@ -41,7 +41,7 @@ def _normalize_login(value: str) -> str:
 
 
 def _credential_account(login: str, host: str) -> str:
-    return f"{_normalize_login(login)}@{(host or SSH_HOST).strip() or SSH_HOST}"
+    return f"{_normalize_login(login)}@{(host or SSH_HOST).strip()}"
 
 
 def _get_saved_password(login: str, host: str) -> tuple[str, str]:
@@ -231,12 +231,12 @@ def _auto_ssh_candidates(preferred_login: str = "", preferred_host: str = "") ->
         or ""
     )
     login_hint = preferred_login or env_login
-    host_hint = (preferred_host or SSH_HOST).strip() or SSH_HOST
+    host_hint = (preferred_host or SSH_HOST).strip()
     add(host_hint, login_hint, "configured host")
 
     raw_aliases = os.environ.get("SLURM_MONITOR_SSH_ALIAS") or os.environ.get("APUANA_MONITOR_SSH_ALIAS") or ""
     aliases = [item.strip() for item in raw_aliases.split(",") if item.strip()]
-    aliases.extend(["apuana", "apuana1", SSH_HOST, TRANSFER_HOST])
+    aliases.extend([SSH_HOST, TRANSFER_HOST])
 
     for alias in aliases:
         config = _parse_ssh_g(alias)
@@ -268,31 +268,55 @@ def _run_openssh(target: str, cmd: list[str], timeout: int) -> tuple[int, str, s
         return 1, "", str(exc)
 
 
+def _openssh_target_for_session(session: dict) -> str:
+    target = (session.get("ssh_target") or "").strip()
+    if target:
+        return target
+    login = (session.get("login") or "").strip()
+    host = (session.get("host") or "").strip()
+    if login and host:
+        return f"{login}@{host}"
+    return ""
+
+
+def _can_run_via_openssh(session: dict) -> bool:
+    if not session.get("token") or session.get("password"):
+        return False
+    auth_mode = session.get("auth_mode") or ""
+    return auth_mode in {"openssh", "paramiko-agent"} and bool(_openssh_target_for_session(session))
+
+
+def _run_openssh_bytes(target: str, cmd: list[str], data: bytes = b"", timeout: int = 120) -> tuple[int, bytes, bytes]:
+    if not target:
+        return 1, b"", b"OpenSSH target is not configured."
+    ssh = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=30",
+        target,
+        shlex.join(cmd),
+    ]
+    try:
+        result = subprocess.run(ssh, input=data, capture_output=True, timeout=timeout, check=False)
+        return result.returncode, result.stdout, result.stderr
+    except Exception as exc:
+        return 1, b"", str(exc).encode("utf-8", errors="replace")
+
+
 def _run_with_stdin(cmd: list[str], data: bytes, timeout: int = 12) -> tuple[int, str, str]:
     session = _session_client()
     if session.get("token"):
-        if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
-            target = session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}"
-            ssh = [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "ServerAliveInterval=30",
-                target,
-                shlex.join(cmd),
-            ]
-            try:
-                result = subprocess.run(ssh, input=data, capture_output=True, timeout=timeout, check=False)
-                return (
-                    result.returncode,
-                    result.stdout.decode("utf-8", errors="replace").strip(),
-                    result.stderr.decode("utf-8", errors="replace").strip(),
-                )
-            except Exception as exc:
-                return 1, "", str(exc)
+        if session.get("auth_mode") == "openssh" and session.get("client") is None and _can_run_via_openssh(session):
+            rc, out, err = _run_openssh_bytes(_openssh_target_for_session(session), cmd, data=data, timeout=timeout)
+            return (
+                rc,
+                out.decode("utf-8", errors="replace").strip(),
+                err.decode("utf-8", errors="replace").strip(),
+            )
 
         with _ssh_exec_lock:
             try:
@@ -310,6 +334,13 @@ def _run_with_stdin(cmd: list[str], data: bytes, timeout: int = 12) -> tuple[int
                 rc = stdout.channel.recv_exit_status()
                 return rc, out, err
             except Exception as exc:
+                if _can_run_via_openssh(session):
+                    rc, out, err = _run_openssh_bytes(_openssh_target_for_session(session), cmd, data=data, timeout=timeout)
+                    return (
+                        rc,
+                        out.decode("utf-8", errors="replace").strip(),
+                        err.decode("utf-8", errors="replace").strip(),
+                    )
                 return 1, "", str(exc)
 
     try:
@@ -326,24 +357,8 @@ def _run_with_stdin(cmd: list[str], data: bytes, timeout: int = 12) -> tuple[int
 def _run_bytes(cmd: list[str], data: bytes = b"", timeout: int = 120) -> tuple[int, bytes, bytes]:
     session = _session_client()
     if session.get("token"):
-        if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
-            target = session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}"
-            ssh = [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "ServerAliveInterval=30",
-                target,
-                shlex.join(cmd),
-            ]
-            try:
-                result = subprocess.run(ssh, input=data, capture_output=True, timeout=timeout, check=False)
-                return result.returncode, result.stdout, result.stderr
-            except Exception as exc:
-                return 1, b"", str(exc).encode("utf-8", errors="replace")
+        if session.get("auth_mode") == "openssh" and session.get("client") is None and _can_run_via_openssh(session):
+            return _run_openssh_bytes(_openssh_target_for_session(session), cmd, data=data, timeout=timeout)
 
         with _ssh_exec_lock:
             try:
@@ -362,6 +377,8 @@ def _run_bytes(cmd: list[str], data: bytes = b"", timeout: int = 120) -> tuple[i
                 rc = stdout.channel.recv_exit_status()
                 return rc, out, err
             except Exception as exc:
+                if _can_run_via_openssh(session):
+                    return _run_openssh_bytes(_openssh_target_for_session(session), cmd, data=data, timeout=timeout)
                 return 1, b"", str(exc).encode("utf-8", errors="replace")
 
     try:
@@ -380,7 +397,7 @@ def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> 
             client = _connect_ssh(host, login, "")
             stdin, stdout, stderr = client.exec_command("echo $HOME", timeout=6)
             _ = stdin, stderr
-            home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/CIN/{login}"
+            home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/{login}"
             token = _set_session(
                 login=login,
                 password="",
@@ -440,7 +457,7 @@ def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> 
                     client = _connect_ssh(host, login, password)
                     stdin, stdout, stderr = client.exec_command("echo $HOME", timeout=6)
                     _ = stdin, stderr
-                    home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/CIN/{login}"
+                    home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/{login}"
                     token = _set_session(
                         login=login,
                         password=password,
@@ -486,8 +503,8 @@ def _auto_login_session(preferred_login: str = "", preferred_host: str = "") -> 
 def _run(cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
     session = _session_client()
     if session.get("token"):
-        if session.get("auth_mode") == "openssh" and not session.get("password") and session.get("client") is None:
-            return _run_openssh(session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}", cmd, timeout)
+        if session.get("auth_mode") == "openssh" and session.get("client") is None and _can_run_via_openssh(session):
+            return _run_openssh(_openssh_target_for_session(session), cmd, timeout)
         # Reconectar fora do exec_lock para não bloquear outros threads durante handshake
         client = session.get("client")
         transport = client.get_transport() if client else None
@@ -497,6 +514,8 @@ def _run(cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
                 with _session_lock:
                     _session["client"] = client
             except Exception as e:
+                if _can_run_via_openssh(session):
+                    return _run_openssh(_openssh_target_for_session(session), cmd, timeout)
                 return 1, "", str(e)
         with _ssh_exec_lock:
             try:
@@ -507,6 +526,8 @@ def _run(cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
                 rc = stdout.channel.recv_exit_status()
                 return rc, out, err
             except Exception as e:
+                if _can_run_via_openssh(session):
+                    return _run_openssh(_openssh_target_for_session(session), cmd, timeout)
                 return 1, "", str(e)
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

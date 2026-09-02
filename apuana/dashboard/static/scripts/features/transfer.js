@@ -151,7 +151,7 @@ function syncTransferMeta(d, options = {}) {
   const previousHome = transferState.home;
   const incomingHome = String(t.home || '').trim();
   transferState.user = t.user || normalizeLogin(sshAuth.login) || d.user || transferState.user || '';
-  transferState.host = t.host || transferState.host || 'slurm-client1.cin.ufpe.br';
+  transferState.host = t.host || transferState.host || d.transfer_host || d.node || '';
   if (incomingHome && (!sshAuth.loggedIn || isApuanaHome(incomingHome))) {
     transferState.home = incomingHome;
   }

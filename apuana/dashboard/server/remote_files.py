@@ -5,9 +5,25 @@ import time
 from pathlib import PurePosixPath
 from typing import Optional
 
-from .runtime import _connect_ssh, _run, _session, _session_client, _session_lock, _session_public
+from .runtime import _connect_ssh, _run, _run_bytes, _session, _session_client, _session_lock, _session_public
 
 EDIT_MAX_BYTES = 1024 * 1024
+IMAGE_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+
+IMAGE_MIME_TYPES = {
+    ".apng": "image/apng",
+    ".avif": "image/avif",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".webp": "image/webp",
+}
 
 
 def _size_human(n: int) -> str:
@@ -18,6 +34,16 @@ def _size_human(n: int) -> str:
             return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
         value /= 1024
     return f"{n} B"
+
+
+def _is_image_path(path: str) -> bool:
+    suffix = PurePosixPath(str(path or "").lower()).suffix
+    return suffix in IMAGE_MIME_TYPES
+
+
+def _image_content_type(path: str) -> str:
+    suffix = PurePosixPath(str(path or "").lower()).suffix
+    return IMAGE_MIME_TYPES.get(suffix, "application/octet-stream")
 
 
 def _ensure_client():
@@ -36,7 +62,7 @@ def _ensure_client():
 def _remote_home(session: Optional[dict] = None) -> str:
     source = session or _session_public()
     login = source.get("login") or ""
-    return (source.get("home") or f"/home/CIN/{login}").rstrip("/") or "/"
+    return (source.get("home") or f"/home/{login}").rstrip("/") or "/"
 
 
 def _safe_remote_path(raw_path: str, *, allow_home: bool = True) -> tuple[str, str]:
@@ -66,7 +92,7 @@ def _safe_remote_path(raw_path: str, *, allow_home: bool = True) -> tuple[str, s
 def _entry_payload(sftp, path: str, attr) -> dict:
     is_dir = stat.S_ISDIR(attr.st_mode)
     is_file = stat.S_ISREG(attr.st_mode)
-    kind = "directory" if is_dir else "file" if is_file else "other"
+    kind = "directory" if is_dir else "image" if is_file and _is_image_path(path) else "file" if is_file else "other"
     return {
         "name": PurePosixPath(path).name or path,
         "path": path,
@@ -84,7 +110,7 @@ def _entry_payload(sftp, path: str, attr) -> dict:
 def _entry_payload_from_find(path: str, type_char: str, size: str, mtime: str) -> dict:
     is_dir = type_char == "d"
     is_file = type_char == "f"
-    kind = "directory" if is_dir else "file" if is_file else "other"
+    kind = "directory" if is_dir else "image" if is_file and _is_image_path(path) else "file" if is_file else "other"
     try:
         size_value = int(float(size or 0))
     except ValueError:
@@ -264,6 +290,88 @@ def _read_remote_file(raw_path: str) -> dict:
                 pass
 
 
+def _read_remote_image(raw_path: str) -> tuple[dict, bytes]:
+    path, error = _safe_remote_path(raw_path)
+    if error:
+        return {"ok": False, "error": error}, b""
+    if not _is_image_path(path):
+        return {"ok": False, "error": "This file type is not supported by the image preview."}, b""
+
+    stat_script = f"""
+set -e
+path={shlex.quote(path)}
+if [ -d "$path" ]; then echo "Cannot preview a directory as an image." >&2; exit 3; fi
+if [ ! -f "$path" ]; then echo "Remote image no longer exists." >&2; exit 4; fi
+wc -c < "$path" | tr -d ' '
+"""
+    rc, out, err = _run(["bash", "-lc", stat_script], timeout=10)
+    if rc == 0 and out:
+        try:
+            size = int(out.strip().splitlines()[-1] or 0)
+        except ValueError:
+            size = 0
+        if size > IMAGE_PREVIEW_MAX_BYTES:
+            return {
+                "ok": False,
+                "code": "image_too_large",
+                "error": f"Image is too large to preview in the browser ({_size_human(size)}).",
+                "path": path,
+                "size": size,
+                "size_human": _size_human(size),
+            }, b""
+        read_script = f"cat -- {shlex.quote(path)}"
+        read_rc, raw, read_err = _run_bytes(["bash", "-lc", read_script], timeout=45)
+        if read_rc == 0:
+            return {
+                "ok": True,
+                "path": path,
+                "name": PurePosixPath(path).name,
+                "size": len(raw),
+                "size_human": _size_human(len(raw)),
+                "content_type": _image_content_type(path),
+            }, raw
+        return {"ok": False, "error": f"Could not read remote image: {read_err.decode('utf-8', errors='replace')}"}, b""
+
+    if err:
+        return {"ok": False, "error": err}, b""
+
+    sftp = None
+    try:
+        client, _ = _ensure_client()
+        sftp = client.open_sftp()
+        attr = sftp.stat(path)
+        if stat.S_ISDIR(attr.st_mode):
+            return {"ok": False, "error": "Cannot preview a directory as an image."}, b""
+        size = int(attr.st_size or 0)
+        if size > IMAGE_PREVIEW_MAX_BYTES:
+            return {
+                "ok": False,
+                "code": "image_too_large",
+                "error": f"Image is too large to preview in the browser ({_size_human(size)}).",
+                "path": path,
+                "size": size,
+                "size_human": _size_human(size),
+            }, b""
+        with sftp.file(path, "rb") as remote_file:
+            raw = remote_file.read()
+        return {
+            "ok": True,
+            "path": path,
+            "name": PurePosixPath(path).name,
+            "size": len(raw),
+            "size_human": _size_human(len(raw)),
+            "content_type": _image_content_type(path),
+        }, raw
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not read remote image: {exc}"}, b""
+    finally:
+        if sftp is not None:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+
+
 def _write_remote_file(raw_path: str, content: str) -> dict:
     path, error = _safe_remote_path(raw_path, allow_home=False)
     if error:
@@ -334,3 +442,79 @@ printf '%s\\n' "$kind"
     if rc != 0:
         return {"ok": False, "error": err or out or "Could not delete remote path."}
     return {"ok": True, "path": path, "kind": (out or "unknown").splitlines()[-1]}
+
+
+def _move_remote_path(raw_source_path: str, raw_destination_directory: str) -> dict:
+    source, error = _safe_remote_path(raw_source_path, allow_home=False)
+    if error:
+        return {"ok": False, "error": error}
+    destination, error = _safe_remote_path(raw_destination_directory)
+    if error:
+        return {"ok": False, "error": error}
+
+    source = posixpath.normpath(source)
+    destination = posixpath.normpath(destination)
+    if source == destination:
+        return {"ok": False, "error": "Choose a different destination folder."}
+
+    source_name = posixpath.basename(source)
+    target = posixpath.join(destination, source_name)
+
+    if destination == source or destination.startswith(source + "/"):
+        return {"ok": False, "error": "Cannot move a folder inside itself."}
+
+    script = f"""
+set -euo pipefail
+source_path={shlex.quote(source)}
+destination_dir={shlex.quote(destination)}
+target_path={shlex.quote(target)}
+
+if [ ! -e "$source_path" ] && [ ! -L "$source_path" ]; then
+  echo "Remote item no longer exists." >&2
+  exit 66
+fi
+
+if [ ! -d "$destination_dir" ] || [ -L "$destination_dir" ]; then
+  echo "Drop target is not a folder." >&2
+  exit 67
+fi
+
+if [ -d "$source_path" ] && [ ! -L "$source_path" ]; then
+  case "$destination_dir" in
+    "$source_path"|"$source_path"/*)
+      echo "Cannot move a folder inside itself." >&2
+      exit 68
+      ;;
+  esac
+  kind=directory
+else
+  kind=file
+fi
+
+if [ "$source_path" = "$target_path" ]; then
+  printf '%s\\nnoop\\n' "$kind"
+  exit 0
+fi
+
+if [ -e "$target_path" ] || [ -L "$target_path" ]; then
+  echo "A file or folder with this name already exists in the destination." >&2
+  exit 69
+fi
+
+mv -- "$source_path" "$destination_dir/"
+printf '%s\\n' "$kind"
+"""
+    rc, out, err = _run(["bash", "-lc", script], timeout=90)
+    if rc != 0:
+        return {"ok": False, "error": err or out or "Could not move remote item."}
+    lines = (out or "unknown").splitlines()
+    kind = lines[0] if lines else "unknown"
+    noop = len(lines) > 1 and lines[1] == "noop"
+    return {
+        "ok": True,
+        "noop": noop,
+        "path": source,
+        "target": source if noop else target,
+        "destination": destination,
+        "kind": kind,
+    }

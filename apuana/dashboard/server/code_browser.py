@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import posixpath
 import shlex
 import stat
@@ -7,7 +8,16 @@ from pathlib import PurePosixPath
 from threading import Lock
 from typing import Optional
 
-from .remote_files import _delete_remote_path, _ensure_client, _remote_home, _safe_remote_path, _size_human
+from .remote_files import (
+    IMAGE_MIME_TYPES,
+    IMAGE_PREVIEW_MAX_BYTES,
+    _delete_remote_path,
+    _ensure_client,
+    _is_image_path,
+    _remote_home,
+    _safe_remote_path,
+    _size_human,
+)
 from .runtime import _run, _run_with_stdin, _session_public
 
 CODE_MAX_BYTES = 768 * 1024
@@ -141,7 +151,7 @@ def _cache_clear_code_file_context() -> None:
 def _is_code_file(name: str) -> bool:
     lower = name.lower()
     suffix = PurePosixPath(lower).suffix
-    return suffix in CODE_EXTENSIONS or lower in CODE_FILENAMES
+    return suffix in CODE_EXTENSIONS or lower in CODE_FILENAMES or _is_image_path(name)
 
 
 def _skip_dir(name: str) -> bool:
@@ -155,7 +165,8 @@ def _skip_file(name: str) -> bool:
 
 
 def _find_code_file_clause() -> str:
-    extension_patterns = [f"-iname {shlex.quote('*' + ext)}" for ext in sorted(CODE_EXTENSIONS)]
+    visible_extensions = CODE_EXTENSIONS | set(IMAGE_MIME_TYPES)
+    extension_patterns = [f"-iname {shlex.quote('*' + ext)}" for ext in sorted(visible_extensions)]
     filename_patterns = [f"-iname {shlex.quote(name)}" for name in sorted(CODE_FILENAMES)]
     return " -o ".join(extension_patterns + filename_patterns)
 
@@ -163,6 +174,8 @@ def _find_code_file_clause() -> str:
 def _language_for(name: str) -> str:
     lower = name.lower()
     suffix = PurePosixPath(lower).suffix
+    if _is_image_path(name):
+        return "image"
     if suffix == ".py":
         return "python"
     if suffix in {".js", ".jsx"}:
@@ -192,14 +205,30 @@ def _language_for(name: str) -> str:
     return "text"
 
 
+def _content_revision(raw: bytes) -> str:
+    """Stable revision used for optimistic concurrency on remote files."""
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _revision_conflict(path: str, current_revision: str = "") -> dict:
+    return {
+        "ok": False,
+        "code": "revision_conflict",
+        "error": "File changed on Apuana after it was opened. Compare or reload it before saving.",
+        "path": path,
+        "current_revision": current_revision,
+    }
+
+
 def _entry_payload(path: str, attr) -> dict:
     is_dir = stat.S_ISDIR(attr.st_mode)
     is_file = stat.S_ISREG(attr.st_mode)
     name = PurePosixPath(path).name or path
+    kind = "directory" if is_dir else "image" if is_file and _is_image_path(path) else "file" if is_file else "other"
     return {
         "name": name,
         "path": path,
-        "kind": "directory" if is_dir else "file" if is_file else "other",
+        "kind": kind,
         "is_dir": is_dir,
         "is_file": is_file,
         "language": "" if is_dir else _language_for(name),
@@ -222,10 +251,11 @@ def _entry_payload_from_find(path: str, type_code: str, size: str, mtime: str) -
         mtime_epoch = int(float(mtime or 0))
     except ValueError:
         mtime_epoch = 0
+    kind = "directory" if is_dir else "image" if is_file and _is_image_path(path) else "file" if is_file else "other"
     return {
         "name": name,
         "path": path,
-        "kind": "directory" if is_dir else "file" if is_file else "other",
+        "kind": kind,
         "is_dir": is_dir,
         "is_file": is_file,
         "language": "" if is_dir else _language_for(name),
@@ -537,6 +567,36 @@ def _code_file_payload(raw_path: str) -> dict:
     if not _is_code_file(name):
         return {"ok": False, "error": "This file type is not configured for the code viewer."}
 
+    if _is_image_path(name):
+        script = f"""
+set -e
+path={shlex.quote(path)}
+if [ -d "$path" ]; then echo "Select a file, not a folder." >&2; exit 3; fi
+if [ ! -f "$path" ]; then echo "File no longer exists on Apuana." >&2; exit 4; fi
+size=$(wc -c < "$path" | tr -d ' ')
+mtime=$(stat -c '%Y' "$path" 2>/dev/null || echo 0)
+printf '%s\\t%s\\n' "$size" "$mtime"
+"""
+        rc, out, err = _run(["bash", "-lc", script], timeout=10)
+        if rc == 0 and out:
+            size_raw, _, mtime_raw = out.strip().partition("\t")
+            size = int(size_raw or 0)
+            if size > IMAGE_PREVIEW_MAX_BYTES:
+                return {"ok": False, "error": f"Image is too large for preview ({_size_human(size)})."}
+            return {
+                "ok": True,
+                "kind": "image",
+                "name": name,
+                "path": path,
+                "language": "image",
+                "size": size,
+                "size_human": _size_human(size),
+                "lines": 0,
+                "content": "",
+                "revision": f"{size}-{int(float(mtime_raw or 0))}",
+            }
+        return {"ok": False, "error": f"Could not read image metadata: {err or 'remote stat failed'}"}
+
     script = f"""
 set -e
 path={shlex.quote(path)}
@@ -564,6 +624,7 @@ base64 -w 0 "$path" 2>/dev/null || base64 "$path" | tr -d '\\n'
                 "size_human": _size_human(int(size_raw or len(raw))),
                 "lines": int(lines_raw or (content.count("\n") + 1 if content else 0)),
                 "content": content,
+                "revision": _content_revision(raw),
             }
         except Exception:
             pass
@@ -589,6 +650,7 @@ base64 -w 0 "$path" 2>/dev/null || base64 "$path" | tr -d '\\n'
             "size_human": _size_human(len(raw)),
             "lines": content.count("\n") + 1 if content else 0,
             "content": content,
+            "revision": _content_revision(raw),
         }
     except Exception as exc:
         return {"ok": False, "error": f"Could not read code file: {err or exc}"}
@@ -600,7 +662,12 @@ base64 -w 0 "$path" 2>/dev/null || base64 "$path" | tr -d '\\n'
                 pass
 
 
-def _code_file_save_payload(raw_path: str, content: str) -> dict:
+def _code_file_save_payload(
+    raw_path: str,
+    content: str,
+    expected_revision: str = "",
+    force: bool = False,
+) -> dict:
     path, error = _safe_remote_path(raw_path, allow_home=False)
     if error:
         return {"ok": False, "error": error}
@@ -609,20 +676,32 @@ def _code_file_save_payload(raw_path: str, content: str) -> dict:
         return {"ok": False, "error": "This file is protected and cannot be saved in the code viewer."}
     if not _is_code_file(name):
         return {"ok": False, "error": "This file type is not configured for the code viewer."}
+    if _is_image_path(name):
+        return {"ok": False, "error": "Image files are preview-only in the code workspace."}
 
     data = str(content or "").encode("utf-8")
     if len(data) > CODE_MAX_BYTES:
         return {"ok": False, "error": f"Content is too large to save from the code viewer ({_size_human(len(data))})."}
 
+    expected = (expected_revision or "").strip().lower()
     script = f"""
 set -e
 path={shlex.quote(path)}
+expected={shlex.quote(expected)}
+force={1 if force else 0}
 tmp="${{path}}.apuana-save-$$"
 cleanup() {{ rm -f "$tmp"; }}
 trap cleanup EXIT
 if [ -d "$path" ]; then echo "Cannot save text over a directory." >&2; exit 4; fi
 parent=$(dirname "$path")
 if [ ! -d "$parent" ]; then echo "Parent directory does not exist on Apuana." >&2; exit 5; fi
+if [ "$force" -ne 1 ] && [ -n "$expected" ] && [ -f "$path" ]; then
+  current=$(sha256sum "$path" | awk '{{print $1}}')
+  if [ "$current" != "$expected" ]; then
+    printf 'APUANA_REVISION_CONFLICT:%s\\n' "$current" >&2
+    exit 9
+  fi
+fi
 mode=""
 if [ -e "$path" ]; then mode=$(stat -c '%a' "$path" 2>/dev/null || true); fi
 cat > "$tmp"
@@ -639,6 +718,9 @@ wc -c < "$path" | tr -d ' '
             payload["saved"] = True
             payload["bytes"] = int(out or len(data))
         return payload
+    if rc == 9 and "APUANA_REVISION_CONFLICT:" in err:
+        current = err.rsplit("APUANA_REVISION_CONFLICT:", 1)[-1].strip().splitlines()[0]
+        return _revision_conflict(path, current)
 
     sftp = None
     tmp_path = ""
@@ -648,6 +730,13 @@ wc -c < "$path" | tr -d ' '
         attr = sftp.stat(path)
         if stat.S_ISDIR(attr.st_mode):
             return {"ok": False, "error": "Cannot save text over a directory."}
+
+        if expected and not force:
+            with sftp.file(path, "rb") as remote_file:
+                current_raw = remote_file.read()
+            current_revision = _content_revision(current_raw)
+            if current_revision != expected:
+                return _revision_conflict(path, current_revision)
 
         tmp_path = f"{path}.apuana-save-{int(time.time() * 1000)}"
         with sftp.file(tmp_path, "wb") as remote_file:
@@ -703,7 +792,7 @@ def _code_create_payload(raw_parent: str, raw_name: str, raw_kind: str) -> dict:
     is_dir = kind in {"dir", "directory", "folder"}
     if not is_dir and kind not in {"file", ""}:
         return {"ok": False, "error": "Create type must be file or folder."}
-    if not is_dir and (_skip_file(name) or not _is_code_file(name)):
+    if not is_dir and (_skip_file(name) or _is_image_path(name) or not _is_code_file(name)):
         return {"ok": False, "error": "Create a code/text file supported by the code workspace."}
 
     target = posixpath.normpath(posixpath.join(parent, name))

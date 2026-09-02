@@ -1,5 +1,7 @@
 .venv/
 .venv*/
+node_modules/
+apuana.config.json
 apuana/.venv-monitor/
 **/.venv-monitor/
 __pycache__/
@@ -17,6 +19,7 @@ apuana/*.pid
 .claude/
 .codex/
 .DS_Store
+apuana/dashboard/static/vendor/generated/*.map
 design/
 docs/
 research_rag/

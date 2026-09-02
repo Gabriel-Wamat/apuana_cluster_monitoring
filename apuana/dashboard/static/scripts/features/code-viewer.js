@@ -2,6 +2,50 @@ function codeTreeKey(root) {
   return String(root || '');
 }
 
+const CODE_SIDEBAR_COLLAPSED_STORAGE_KEY = 'apuana.codeSidebar.collapsed';
+
+function codeWorkspaceElement() {
+  return document.querySelector('#view-code .code-workspace');
+}
+
+function applyCodeSidebarCollapsed(collapsed, persist = true) {
+  const isCollapsed = !!collapsed;
+  const workspace = codeWorkspaceElement();
+  const button = $('code-sidebar-collapse');
+  if (workspace) workspace.classList.toggle('code-sidebar-collapsed', isCollapsed);
+  if (button) {
+    button.setAttribute('aria-pressed', isCollapsed ? 'true' : 'false');
+    button.setAttribute('aria-label', isCollapsed ? 'Expand code sidebar' : 'Collapse code sidebar');
+    button.setAttribute('title', isCollapsed ? 'Expand code sidebar' : 'Collapse code sidebar');
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(CODE_SIDEBAR_COLLAPSED_STORAGE_KEY, isCollapsed ? '1' : '0');
+    } catch (_) {
+      // Preference persistence is best-effort only.
+    }
+  }
+  requestAnimationFrame(() => {
+    codeMonacoEditor?.layout?.();
+    if (typeof scheduleCodeTerminalResize === 'function') scheduleCodeTerminalResize();
+  });
+}
+
+function initCodeSidebarCollapse() {
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem(CODE_SIDEBAR_COLLAPSED_STORAGE_KEY) === '1';
+  } catch (_) {
+    collapsed = false;
+  }
+  applyCodeSidebarCollapsed(collapsed, false);
+}
+
+function toggleCodeSidebarCollapse() {
+  const workspace = codeWorkspaceElement();
+  applyCodeSidebarCollapsed(!workspace?.classList.contains('code-sidebar-collapsed'));
+}
+
 function codeShortPath(path) {
   const value = String(path || '').replace(/\/+$/, '') || '/';
   const home = String(codeState.project || transferState.home || '').replace(/\/+$/, '');
@@ -26,6 +70,9 @@ function codeIcon(kind, language) {
   if (kind === 'directory' || kind === 'dir') {
     return '<svg viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>';
   }
+  if (language === 'image') {
+    return '<svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="m5 17 4.5-5 3.5 4 2-2.5L20 18"/><circle cx="9" cy="8" r="1.5"/></svg>';
+  }
   if (language === 'python') {
     return '<svg viewBox="0 0 24 24"><path d="M8 8h8v4H9a3 3 0 0 0-3 3v1"/><path d="M16 16H8v-4h7a3 3 0 0 0 3-3V8"/><circle cx="9" cy="6" r="1"/><circle cx="15" cy="18" r="1"/></svg>';
   }
@@ -39,6 +86,7 @@ const CODE_LANGUAGE_BADGES = {
   cpp: { symbol: 'C++', label: 'C++', tone: 'code' },
   css: { symbol: '#', label: 'CSS', tone: 'css' },
   html: { symbol: '<>', label: 'HTML', tone: 'html' },
+  image: { symbol: 'IMG', label: 'Image', tone: 'image' },
   java: { symbol: 'Jv', label: 'Java', tone: 'code' },
   javascript: { symbol: 'JS', label: 'JavaScript', tone: 'js' },
   js: { symbol: 'JS', label: 'JavaScript', tone: 'js' },
@@ -200,7 +248,21 @@ function setCodeTreePayload(data) {
     loading: false,
   };
   codeTreeCache.set(codeTreeKey(root), data);
+  codeLoadedFolderPaths.add(root);
   renderCodeTreeView();
+}
+
+function codeFolderItemsAsEntries(items, root) {
+  const base = String(root || '').replace(/\/+$/, '');
+  return (items || []).map(item => {
+    const absPath = item.abs_path || item.path || '';
+    return {
+      ...item,
+      abs_path: absPath,
+      path: absPath === base ? '' : absPath.slice(base.length + 1),
+      kind: item.is_dir || item.kind === 'directory' || item.kind === 'dir' ? 'dir' : 'file',
+    };
+  }).filter(item => item.path);
 }
 
 async function loadCodeTree(options = {}) {
@@ -214,11 +276,11 @@ async function loadCodeTree(options = {}) {
   const tree = $('code-file-tree');
   if (tree) tree.innerHTML = '<div class="code-tree-empty">Loading code tree...</div>';
   try {
-    const response = await apiFetch('/api/code/tree?root=' + encodeURIComponent(root));
+    const response = await apiFetch('/api/code/folders?path=' + encodeURIComponent(root));
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || 'Could not load code tree.');
     if (seq !== codeRequestSeq) return;
-    setCodeTreePayload(data);
+    setCodeTreePayload({...data, root, entries: codeFolderItemsAsEntries(data.items, root), truncated: false});
   } catch (err) {
     if (seq !== codeRequestSeq) return;
     if (tree) tree.innerHTML = `<div class="alert a-danger">${esc(err?.message || 'Could not load code tree.')}</div>`;
@@ -311,15 +373,35 @@ function openCodeFolder(path, options = {}) {
   codeState.query = '';
   if ($('code-search')) $('code-search').value = '';
   codeExpandedPaths.clear();
+  codeLoadedFolderPaths.clear();
   closeCodeFolderMenu();
   loadCodeTree({root: path, force: false});
 }
 
-function toggleCodeFolder(path) {
+async function toggleCodeFolder(path) {
   if (!path) return;
-  if (codeExpandedPaths.has(path)) codeExpandedPaths.delete(path);
-  else codeExpandedPaths.add(path);
+  if (codeExpandedPaths.has(path)) {
+    codeExpandedPaths.delete(path);
+    renderCodeTreeView();
+    return;
+  }
+  codeExpandedPaths.add(path);
   renderCodeTreeView();
+  if (codeLoadedFolderPaths.has(path)) return;
+  try {
+    const response = await apiFetch('/api/code/folders?path=' + encodeURIComponent(path));
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'Could not load folder.');
+    const root = codeState.path || codeState.project || transferState.home || '';
+    const incoming = codeFolderItemsAsEntries(data.items, root);
+    const known = new Set((codeState.entries || []).map(entry => entry.abs_path || entry.absPath));
+    syncCodeTreeFromEntries(root, [...(codeState.entries || []), ...incoming.filter(entry => !known.has(entry.abs_path))]);
+    codeLoadedFolderPaths.add(path);
+  } catch (err) {
+    codeExpandedPaths.delete(path);
+    const tree = $('code-file-tree');
+    if (tree) tree.insertAdjacentHTML('afterbegin', `<div class="alert a-danger">${esc(err?.message || 'Could not load folder.')}</div>`);
+  }
 }
 
 function codeUpFolder() {
@@ -590,7 +672,7 @@ function openCodeCreateModal(kind) {
   const confirm = $('code-create-confirm');
   if (!modal || !input) return;
   const isFolder = kind === 'folder' || kind === 'dir' || kind === 'directory';
-  const root = codeState.project || transferState.home || codeState.path || '';
+  const root = codeCurrentFolder();
   codeState.createKind = isFolder ? 'folder' : 'file';
   if (title) title.textContent = isFolder ? 'New folder' : 'New file';
   if (copy) copy.textContent = `Create inside ${codeShortPath(root)}.`;
@@ -609,7 +691,7 @@ async function confirmCodeCreate() {
   const confirm = $('code-create-confirm');
   const name = input?.value.trim() || '';
   const kind = codeState.createKind || 'file';
-  const parent = codeState.project || transferState.home || codeCurrentFolder();
+  const parent = codeCurrentFolder();
   if (error) error.textContent = '';
   if (!name) {
     if (error) error.textContent = 'Type a name first.';
@@ -653,6 +735,49 @@ function closeCodeDeleteModal() {
   codeState.deleteKind = '';
 }
 
+function closeCodeConflictModal() {
+  const modal = $('code-conflict-modal');
+  modal?.classList.remove('open');
+  modal?.setAttribute('aria-hidden', 'true');
+  codeConflictState = null;
+}
+
+function openCodeConflictModal(conflict) {
+  codeConflictState = conflict;
+  const modal = $('code-conflict-modal');
+  const copy = $('code-conflict-copy');
+  if (copy) copy.textContent = `"${codeFileNameFromPath(conflict.path)}" changed on Apuana after it was opened. Reload the remote version or overwrite it explicitly.`;
+  modal?.classList.add('open');
+  modal?.setAttribute('aria-hidden', 'false');
+}
+
+async function reloadConflictedCodeFile() {
+  const path = codeConflictState?.path || '';
+  if (!path) return;
+  try {
+    const response = await apiFetch('/api/code/file?path=' + encodeURIComponent(path));
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'Could not reload file.');
+    codeFileCache.set(path, data);
+    codeDraftCache.set(path, data.content || '');
+    codeDirtyPaths.delete(path);
+    const model = codeMonacoModels.get(path);
+    if (model && model.getValue() !== String(data.content || '')) model.setValue(String(data.content || ''));
+    closeCodeConflictModal();
+    if (codeState.activePath === path) renderCodeFile(data);
+    renderCodeTabs();
+  } catch (err) {
+    const copy = $('code-conflict-copy');
+    if (copy) copy.textContent = err?.message || 'Could not reload file.';
+  }
+}
+
+function overwriteConflictedCodeFile() {
+  const path = codeConflictState?.path || '';
+  closeCodeConflictModal();
+  if (path && codeState.activePath === path) saveActiveCodeFile({force: true});
+}
+
 function openCodeDeleteModal(path, kind, name) {
   if (!path) return;
   const modal = $('code-delete-modal');
@@ -680,8 +805,10 @@ async function confirmCodeDelete() {
     if (!response.ok || !data.ok) throw new Error(data.error || 'Could not delete item.');
     const deletedRoot = path.replace(/\/+$/, '');
     codeFileCache.delete(path);
+    if (typeof clearRemoteImageCache === 'function') clearRemoteImageCache(path);
     codeDraftCache.delete(path);
     codeDirtyPaths.delete(path);
+    [...codeMonacoModels.keys()].filter(modelPath => modelPath === deletedRoot || modelPath.startsWith(deletedRoot + '/')).forEach(disposeCodeModel);
     codeState.openFiles = codeState.openFiles.filter(file => file.path !== path && !file.path.startsWith(deletedRoot + '/'));
     if (codeState.activePath === path || codeState.activePath.startsWith(deletedRoot + '/')) {
       codeState.activePath = codeState.openFiles[codeState.openFiles.length - 1]?.path || '';
@@ -782,11 +909,14 @@ async function openCodeFile(path) {
 }
 
 function closeCodeTab(path) {
+  if (codeDirtyPaths.has(path) && !window.confirm(`Discard unsaved changes in "${codeFileNameFromPath(path)}"?`)) return;
+  if (codeMonacoActivePath === path) disposeCodeEditorView();
   codeState.openFiles = codeState.openFiles.filter(file => file.path !== path);
   codeViewModeByPath.delete(path);
   codeDraftCache.delete(path);
   codeDirtyPaths.delete(path);
   codeSavingPaths.delete(path);
+  disposeCodeModel(path);
   if (codeState.activePath === path) {
     codeState.activePath = codeState.openFiles[codeState.openFiles.length - 1]?.path || '';
   }
@@ -907,12 +1037,18 @@ function isMarkdownCodeFile(data) {
   return data?.language === 'markdown' || name.endsWith('.md') || name.endsWith('.markdown');
 }
 
+function isImageCodeFile(data) {
+  return data?.kind === 'image' || data?.language === 'image' || isRemoteImagePath(data?.path || data?.name || '');
+}
+
 function defaultCodeViewMode(data) {
+  if (isImageCodeFile(data)) return 'preview';
   return isMarkdownCodeFile(data) ? 'preview' : 'edit';
 }
 
 function currentCodeViewMode(data) {
   const path = data?.path || codeState.activePath || '';
+  if (isImageCodeFile(data)) return 'preview';
   if (!isMarkdownCodeFile(data)) return 'edit';
   const mode = codeViewModeByPath.get(path) || defaultCodeViewMode(data);
   return mode === 'edit' ? 'edit' : 'preview';
@@ -925,10 +1061,98 @@ function codeFileDraft(data) {
   return codeDraftCache.get(path);
 }
 
+function monacoLanguage(language) {
+  return window.CodeWorkspaceCore.monacoLanguage(language);
+}
+
+function monacoUriForPath(path) {
+  const authority = String(codeTerminalState.host || 'apuana').replace(/[^a-z0-9.-]/gi, '-');
+  return window.monaco.Uri.from({scheme: 'apuana-ssh', authority, path: String(path || '/')});
+}
+
+function disposeCodeEditorView() {
+  if (!codeMonacoEditor) return;
+  if (codeMonacoActivePath) {
+    codeMonacoViewStates.set(codeMonacoActivePath, codeMonacoEditor.saveViewState());
+  }
+  codeMonacoEditor.dispose();
+  codeMonacoEditor = null;
+  codeMonacoActivePath = '';
+}
+
+function disposeCodeModel(path) {
+  codeMonacoDisposables.get(path)?.dispose?.();
+  codeMonacoDisposables.delete(path);
+  codeMonacoModels.get(path)?.dispose?.();
+  codeMonacoModels.delete(path);
+  codeMonacoViewStates.delete(path);
+}
+
+function ensureCodeModel(data) {
+  const monaco = window.monaco;
+  if (!monaco || !data?.path) return null;
+  let model = codeMonacoModels.get(data.path);
+  if (!model) {
+    model = monaco.editor.createModel(codeFileDraft(data), monacoLanguage(data.language), monacoUriForPath(data.path));
+    codeMonacoModels.set(data.path, model);
+    codeMonacoDisposables.set(data.path, model.onDidChangeContent(() => {
+      const next = model.getValue();
+      codeDraftCache.set(data.path, next);
+      if (next === String((codeFileCache.get(data.path) || data).content || '')) codeDirtyPaths.delete(data.path);
+      else codeDirtyPaths.add(data.path);
+      updateCodeSaveUi(codeFileCache.get(data.path) || data);
+    }));
+  } else {
+    monaco.editor.setModelLanguage(model, monacoLanguage(data.language));
+  }
+  return model;
+}
+
+function mountCodeEditor(data) {
+  const container = $('code-monaco-editor');
+  const monaco = window.monaco;
+  if (!container || !monaco) {
+    if (container) container.innerHTML = '<div class="alert a-danger">Monaco Editor could not be loaded.</div>';
+    return;
+  }
+  disposeCodeEditorView();
+  const model = ensureCodeModel(data);
+  if (!model) return;
+  codeMonacoEditor = monaco.editor.create(container, {
+    model,
+    theme: 'vs-dark',
+    automaticLayout: true,
+    fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    fontSize: 12.5,
+    lineHeight: 21,
+    minimap: {enabled: false},
+    padding: {top: 10, bottom: 10},
+    scrollBeyondLastLine: false,
+    smoothScrolling: true,
+    tabSize: 2,
+    insertSpaces: true,
+    wordWrap: 'off',
+    renderWhitespace: 'selection',
+    bracketPairColorization: {enabled: true},
+    guides: {bracketPairs: true, indentation: true},
+    overviewRulerBorder: false,
+  });
+  codeMonacoActivePath = data.path;
+  const viewState = codeMonacoViewStates.get(data.path);
+  if (viewState) codeMonacoEditor.restoreViewState(viewState);
+  codeMonacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActiveCodeFile());
+  codeMonacoEditor.focus();
+}
+
 function setActiveCodeMode(mode) {
   const path = codeState.activePath || '';
   const data = codeFileCache.get(path);
   if (!path || !data) return;
+  if (isImageCodeFile(data)) {
+    codeViewModeByPath.set(path, 'preview');
+    renderCodeFile(data);
+    return;
+  }
   if (!isMarkdownCodeFile(data)) {
     codeViewModeByPath.set(path, 'edit');
     renderCodeFile(data);
@@ -949,6 +1173,16 @@ function codeModeButton(mode, label, active, disabled = false) {
 }
 
 function renderCodeActions(data, mode) {
+  if (isImageCodeFile(data)) {
+    return `
+      <div class="code-editor-actions">
+        <button class="mini-btn btn-with-icon" id="code-preview-image-modal" type="button" title="Open image preview" aria-label="Open image preview">
+          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Preview</span>
+        </button>
+      </div>
+    `;
+  }
   const dirty = codeDirtyPaths.has(data.path);
   const saving = codeSavingPaths.has(data.path);
   const statusKind = saving ? 'saving' : dirty ? 'dirty' : 'saved';
@@ -993,7 +1227,7 @@ function handleCodeSaveShortcut(ev) {
   if (!isCodeSaveShortcut(ev)) return;
   const path = codeState.activePath || '';
   const data = codeFileCache.get(path);
-  if (!path || !data || currentCodeViewMode(data) !== 'edit') return;
+  if (!path || !data || isImageCodeFile(data) || currentCodeViewMode(data) !== 'edit') return;
   ev.preventDefault();
   ev.stopPropagation();
   if (!codeDirtyPaths.has(path) || codeSavingPaths.has(path)) {
@@ -1031,6 +1265,13 @@ function bindCodeEditorControls(data) {
     button.addEventListener('click', () => setActiveCodeMode(button.getAttribute('data-code-mode') || 'preview'));
   });
   $('code-save-file')?.addEventListener('click', saveActiveCodeFile);
+  $('code-preview-image-modal')?.addEventListener('click', () => openRemoteImagePreview(data.path, data));
+
+  document.querySelectorAll('[data-code-image-preview]').forEach(image => {
+    const status = image.closest('.code-image-preview')?.querySelector('.remote-image-status') || null;
+    loadRemoteImageElement(image, data.path, status, data);
+    image.addEventListener('click', () => openRemoteImagePreview(data.path, data));
+  });
 
   const textarea = $('code-edit-content');
   if (textarea) {
@@ -1205,29 +1446,49 @@ function renderMarkdownPreview(content) {
 }
 
 function renderEditMode(data) {
-  const draft = codeFileDraft(data);
-  return `<div class="code-edit-wrap">
-    <div class="code-edit-layer">
-      <pre id="code-edit-highlight" class="code-edit-highlight" aria-hidden="true"><code>${highlightEditableCode(draft, data.language || 'text')}</code></pre>
-      <textarea id="code-edit-content" class="code-edit-area" spellcheck="false" wrap="off"></textarea>
-    </div>
-  </div>`;
+  void data;
+  return '<div id="code-monaco-editor" class="code-monaco-editor" role="textbox" aria-label="Code editor"></div>';
 }
 
-async function saveActiveCodeFile() {
+function renderCodeImagePreview(data) {
+  return `
+    <div class="code-image-preview">
+      <div class="code-image-preview-toolbar">
+        <div>
+          <strong>${esc(data.name || 'Image')}</strong>
+          <span>${esc(data.path || '')}${data.size_human ? ` · ${esc(data.size_human)}` : ''}</span>
+        </div>
+        <button class="mini-btn btn-with-icon" id="code-preview-image-inline" type="button">
+          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Open larger</span>
+        </button>
+      </div>
+      <div class="code-image-preview-stage">
+        <img data-code-image-preview alt="${esc(data.name || 'Remote image preview')}" hidden>
+        <div class="remote-image-status loading">Loading image from Apuana...</div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveActiveCodeFile(options = {}) {
   const path = codeState.activePath || '';
   const cached = codeFileCache.get(path);
-  if (!path || !cached || codeSavingPaths.has(path)) return;
-  const content = codeDraftCache.has(path) ? codeDraftCache.get(path) : String(cached.content || '');
+  if (!path || !cached || isImageCodeFile(cached) || codeSavingPaths.has(path)) return;
+  const content = codeMonacoModels.get(path)?.getValue() ?? (codeDraftCache.has(path) ? codeDraftCache.get(path) : String(cached.content || ''));
   codeSavingPaths.add(path);
   updateCodeSaveUi(cached);
   try {
     const response = await apiFetch('/api/code/file', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path, content}),
+      body: JSON.stringify({path, content, expected_revision: cached.revision || '', force: !!options.force}),
     });
     const data = await response.json();
+    if (response.status === 409 && data.code === 'revision_conflict') {
+      openCodeConflictModal({path, content, currentRevision: data.current_revision || ''});
+      return;
+    }
     if (!response.ok || !data.ok) throw new Error(data.error || 'Could not save file.');
     codeFileCache.set(path, data);
     codeDraftCache.set(path, data.content || '');
@@ -1264,10 +1525,13 @@ function renderCodeFile(data) {
   const editor = $('code-editor');
   if (!editor) return;
   const mode = currentCodeViewMode(data);
+  disposeCodeEditorView();
   if (!codeViewModeByPath.has(data.path)) codeViewModeByPath.set(data.path, mode);
-  if (!codeDraftCache.has(data.path)) codeDraftCache.set(data.path, String(data.content || ''));
+  if (!isImageCodeFile(data) && !codeDraftCache.has(data.path)) codeDraftCache.set(data.path, String(data.content || ''));
   $('code-file-title').textContent = data.name || 'Code file';
-  $('code-file-meta').textContent = `${data.path} · ${data.lines || 0} line(s) · ${data.size_human || ''}`;
+  $('code-file-meta').textContent = isImageCodeFile(data)
+    ? `${data.path} · Image · ${data.size_human || ''}`
+    : `${data.path} · ${data.lines || 0} line(s) · ${data.size_human || ''}`;
   setCodeLanguagePill(data.language || 'text', data.path || data.name || '');
   const head = document.querySelector('.code-editor-head');
   if (head) {
@@ -1279,14 +1543,16 @@ function renderCodeFile(data) {
     }
     actions.outerHTML = renderCodeActions(data, mode);
   }
-  if (mode === 'preview' && isMarkdownCodeFile(data)) {
+  if (isImageCodeFile(data)) {
+    editor.innerHTML = renderCodeImagePreview(data);
+  } else if (mode === 'preview' && isMarkdownCodeFile(data)) {
     editor.innerHTML = renderMarkdownPreview(codeFileDraft(data));
   } else if (mode === 'edit') {
     editor.innerHTML = renderEditMode(data);
-    const textarea = $('code-edit-content');
-    if (textarea) textarea.value = codeFileDraft(data);
   } else {
     editor.innerHTML = renderSourceCode({...data, content: codeFileDraft(data)});
   }
   bindCodeEditorControls(data);
+  $('code-preview-image-inline')?.addEventListener('click', () => openRemoteImagePreview(data.path, data));
+  if (mode === 'edit') requestAnimationFrame(() => mountCodeEditor(data));
 }

@@ -5,6 +5,9 @@ function remoteIcon(kind) {
   if (kind === 'file') {
     return '<svg viewBox="0 0 48 56"><path d="M10 3h19l9 9v41H10z"/><path d="M29 3v10h9"/><path d="M17 27h14"/><path d="M17 35h14"/></svg>';
   }
+  if (kind === 'image') {
+    return '<svg viewBox="0 0 48 56"><path d="M10 3h19l9 9v41H10z"/><path d="M29 3v10h9"/><path d="M17 37l7-8 5 5 3-4 6 7"/><circle cx="21" cy="23" r="3"/></svg>';
+  }
   return '<svg viewBox="0 0 48 56"><path d="M10 3h28v50H10z"/><path d="M18 26h12"/><path d="M18 34h12"/></svg>';
 }
 
@@ -20,6 +23,9 @@ function actionIcon(name) {
   }
   if (name === 'edit') {
     return '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+  }
+  if (name === 'preview') {
+    return '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   }
   return '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>';
 }
@@ -61,11 +67,16 @@ function remoteItemSubtitle(item) {
 
 function remoteItemTypeLabel(item) {
   if (item.is_dir) return 'Folder';
+  if (isRemoteImageItem(item)) return 'Image';
   const name = String(item.name || item.path || '').toLowerCase();
   if (name.endsWith('.out')) return 'STDOUT';
   if (name.endsWith('.err')) return 'STDERR';
   const ext = name.includes('.') ? name.split('.').pop() : '';
   return ext && ext.length <= 8 ? ext.toUpperCase() : 'File';
+}
+
+function findRemoteExplorerItem(path) {
+  return (remoteExplorerState.items || []).find(item => sameRemotePath(item.path, path)) || null;
 }
 
 function remoteDisplayPath(item) {
@@ -150,6 +161,32 @@ function setRemoteExplorerStatus(kind, message) {
 
 function sameRemotePath(a, b) {
   return String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
+}
+
+function normalizeRemoteDropPath(path) {
+  return String(path || '').replace(/\/+$/, '');
+}
+
+function parentRemotePath(path) {
+  const normalized = normalizeRemoteDropPath(path);
+  if (!normalized || normalized === '/') return '/';
+  const index = normalized.lastIndexOf('/');
+  return index > 0 ? normalized.slice(0, index) : '/';
+}
+
+function isRemoteDescendantPath(path, parent) {
+  const child = normalizeRemoteDropPath(path);
+  const root = normalizeRemoteDropPath(parent);
+  return !!child && !!root && child.startsWith(`${root}/`);
+}
+
+function canDropRemoteItem(sourcePath, destinationPath) {
+  const source = normalizeRemoteDropPath(sourcePath);
+  const destination = normalizeRemoteDropPath(destinationPath);
+  if (!source || !destination) return false;
+  if (sameRemotePath(source, destination)) return false;
+  if (isRemoteDescendantPath(destination, source)) return false;
+  return true;
 }
 
 function removeRemoteItemOptimistically(path) {
@@ -332,6 +369,7 @@ function refreshRemoteUploadPlaceholders() {
 function bindRemoteExplorerInteractions(grid) {
   grid.querySelectorAll('.remote-tile').forEach(tile => {
     if (tile.classList.contains('remote-upload-placeholder')) return;
+    bindRemoteDragTile(tile);
     tile.addEventListener('click', () => {
       const path = tile.getAttribute('data-path') || '';
       const kind = tile.getAttribute('data-kind') || '';
@@ -355,7 +393,8 @@ function bindRemoteExplorerInteractions(grid) {
       } else if (path) {
         ev.preventDefault();
         closeRemoteTileMenus();
-        openRemoteEdit(path);
+        if (kind === 'image' || isRemoteImagePath(path)) openRemoteImagePreview(path, findRemoteExplorerItem(path) || {});
+        else openRemoteEdit(path);
       }
     });
     tile.addEventListener('keydown', ev => {
@@ -386,6 +425,7 @@ function bindRemoteExplorerInteractions(grid) {
       closeRemoteTileMenus();
       if (action === 'download') downloadRemoteItemFromBrowser(path, kind);
       if (action === 'import') openImportModal(path);
+      if (action === 'preview') openRemoteImagePreview(path, findRemoteExplorerItem(path) || {name});
       if (action === 'edit') openRemoteEdit(path);
       if (action === 'delete') openRemoteDelete(path, name);
     };
@@ -394,6 +434,103 @@ function bindRemoteExplorerInteractions(grid) {
       if (ev.key === 'Enter' || ev.key === ' ') run(ev);
     });
   });
+}
+
+function bindRemoteDragTile(tile) {
+  const path = tile.getAttribute('data-path') || '';
+  const kind = tile.getAttribute('data-kind') || '';
+  if (!path) return;
+  tile.draggable = true;
+  tile.addEventListener('dragstart', ev => {
+    if (ev.target?.closest?.('.remote-tile-actions')) {
+      ev.preventDefault();
+      return;
+    }
+    closeRemoteTileMenus();
+    remoteExplorerState.dragPath = path;
+    tile.classList.add('dragging');
+    ev.dataTransfer.effectAllowed = 'move';
+    ev.dataTransfer.setData('text/plain', path);
+    ev.dataTransfer.setData('application/x-apuana-remote-path', path);
+  });
+  tile.addEventListener('dragend', () => {
+    remoteExplorerState.dragPath = '';
+    gridClearRemoteDropState();
+  });
+
+  if (kind !== 'directory') return;
+
+  tile.addEventListener('dragover', ev => {
+    const sourcePath = remoteDraggedPath(ev);
+    if (!canDropRemoteItem(sourcePath, path)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    tile.classList.add('drop-target');
+  });
+  tile.addEventListener('dragleave', ev => {
+    if (ev.relatedTarget && tile.contains(ev.relatedTarget)) return;
+    tile.classList.remove('drop-target');
+  });
+  tile.addEventListener('drop', ev => {
+    const sourcePath = remoteDraggedPath(ev);
+    if (!canDropRemoteItem(sourcePath, path)) return;
+    ev.preventDefault();
+    gridClearRemoteDropState();
+    moveRemoteItem(sourcePath, path);
+  });
+}
+
+function remoteDraggedPath(ev) {
+  return ev?.dataTransfer?.getData('application/x-apuana-remote-path')
+    || ev?.dataTransfer?.getData('text/plain')
+    || remoteExplorerState.dragPath
+    || '';
+}
+
+function gridClearRemoteDropState() {
+  document.querySelectorAll('.remote-tile.dragging,.remote-tile.drop-target').forEach(tile => {
+    tile.classList.remove('dragging', 'drop-target');
+  });
+}
+
+async function moveRemoteItem(sourcePath, destinationPath) {
+  const source = normalizeRemoteDropPath(sourcePath);
+  const destination = normalizeRemoteDropPath(destinationPath);
+  if (!canDropRemoteItem(source, destination)) {
+    setRemoteExplorerStatus('error', 'This item cannot be moved to that folder.');
+    return;
+  }
+
+  const currentPath = remoteExplorerState.path || transferState.home;
+  const currentPeriod = remoteExplorerState.period || $('remote-period')?.value || 'all';
+  const item = findRemoteExplorerItem(source);
+  const destinationItem = findRemoteExplorerItem(destination);
+  const destinationName = destinationItem?.name || destination.split('/').pop() || destination;
+  setRemoteExplorerStatus('', `Moving ${item?.name || source.split('/').pop() || 'item'} to ${destinationName}...`);
+
+  try {
+    const response = await apiFetch('/api/remote/move', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sourcePath: source, destinationPath: destination}),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'Move failed.');
+    remoteExplorerCache.clear();
+    if (!data.noop && sameRemotePath(parentRemotePath(source), currentPath)) {
+      removeRemoteItemOptimistically(source);
+    }
+    setRemoteExplorerStatus('ok', data.noop ? 'Item is already in this folder.' : 'Remote item moved.');
+    loadRemoteExplorer(currentPath, currentPeriod, {force: true});
+  } catch (err) {
+    remoteExplorerCache.clear();
+    try {
+      await loadRemoteExplorer(currentPath, currentPeriod, {force: true});
+    } catch (_) {
+      // Keep the move error below as the most useful feedback.
+    }
+    setRemoteExplorerStatus('error', err?.message || 'Could not move this item.');
+  }
 }
 
 function remoteGridGroupTemplate(key, items) {
@@ -428,8 +565,9 @@ function remoteListGroupTemplate(key, items) {
 function remoteListRowTemplate(item) {
   const kind = item.kind || 'other';
   const selected = sameRemotePath(item.path, transferState.selectedPath);
+  const dropAttrs = kind === 'directory' ? ' data-drop-target="directory" aria-dropeffect="move"' : '';
   return `
-    <div class="remote-list-row remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
+    <div class="remote-list-row remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" draggable="true" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}"${dropAttrs}>
       <span class="remote-list-name">
         <span class="remote-list-icon">${remoteIcon(kind)}</span>
         <span class="remote-list-copy">
@@ -448,11 +586,13 @@ function remoteListRowTemplate(item) {
 function remoteTileActionsTemplate(item) {
   const kind = item.kind || 'other';
   const isDir = !!item.is_dir;
+  const isImage = !isDir && isRemoteImageItem(item);
   return `
     <button class="remote-tile-action remote-tile-menu-trigger" type="button" data-remote-menu data-path="${esc(item.path)}" aria-label="Open actions for ${esc(item.name || item.path)}" title="Actions">${actionIcon('menu')}</button>
     <span class="remote-tile-menu" role="menu" aria-label="Actions for ${esc(item.name || item.path)}">
       <button type="button" role="menuitem" data-remote-action="download" data-path="${esc(item.path)}" data-kind="${esc(kind)}" data-name="${esc(item.name)}">${actionIcon('download')}<span>Download</span></button>
       ${isDir ? `<button type="button" role="menuitem" data-remote-action="import" data-path="${esc(item.path)}" data-kind="${esc(kind)}" data-name="${esc(item.name)}">${actionIcon('import')}<span>Importar</span></button>` : ''}
+      ${isImage ? `<button type="button" role="menuitem" data-remote-action="preview" data-path="${esc(item.path)}" data-kind="${esc(kind)}" data-name="${esc(item.name)}">${actionIcon('preview')}<span>Preview</span></button>` : ''}
       ${!isDir ? `<button type="button" role="menuitem" data-remote-action="edit" data-path="${esc(item.path)}" data-kind="${esc(kind)}" data-name="${esc(item.name)}">${actionIcon('edit')}<span>Edit</span></button>` : ''}
       <button type="button" role="menuitem" class="danger" data-remote-action="delete" data-path="${esc(item.path)}" data-kind="${esc(kind)}" data-name="${esc(item.name)}">${actionIcon('delete')}<span>Delete</span></button>
     </span>
@@ -462,8 +602,9 @@ function remoteTileActionsTemplate(item) {
 function remoteTileTemplate(item) {
   const kind = item.kind || 'other';
   const selected = sameRemotePath(item.path, transferState.selectedPath);
+  const dropAttrs = kind === 'directory' ? ' data-drop-target="directory" aria-dropeffect="move"' : '';
   return `
-    <div class="remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}">
+    <div class="remote-tile ${esc(kind)} ${selected ? 'selected' : ''}" role="button" tabindex="0" draggable="true" aria-pressed="${selected ? 'true' : 'false'}" data-path="${esc(item.path)}" data-kind="${esc(kind)}"${dropAttrs}>
       <span class="remote-tile-icon">${remoteIcon(kind)}</span>
       <span class="remote-tile-name" title="${esc(item.name || item.path)}">${esc(item.name || item.path)}</span>
       <span class="remote-tile-meta">${esc(remoteItemSubtitle(item))}</span>

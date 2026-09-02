@@ -1,31 +1,105 @@
 const CODE_TERMINAL_INPUT_FLUSH_MS = 16;
-let codeTerminalInputBuffer = '';
-let codeTerminalInputTimer = null;
-let codeTerminalInputInFlight = false;
+const CODE_TERMINAL_MAX_TABS = 4;
 let codeTerminalResizeTimer = null;
 
-function codeTerminalDimensions() {
-  const screen = $('code-terminal-screen');
-  const width = screen?.clientWidth || 960;
-  const height = screen?.clientHeight || 240;
-  const cellWidth = 8.6;
-  const cellHeight = 20.5;
+function createCodeTerminalTab() {
+  const number = codeTerminalState.nextTabNumber++;
   return {
-    cols: Math.max(80, Math.min(240, Math.floor(width / cellWidth))),
-    rows: Math.max(8, Math.min(80, Math.floor(height / cellHeight))),
+    clientId: `terminal-${Date.now().toString(36)}-${number}`,
+    title: `Terminal ${number}`,
+    id: '',
+    status: 'idle',
+    statusLabel: 'Idle',
+    host: '',
+    login: '',
+    backend: '',
+    seq: 0,
+    polling: false,
+    pollTimer: null,
+    eventSource: null,
+    streaming: false,
+    starting: false,
+    startPromise: null,
+    pendingInput: '',
+    inputBuffer: '',
+    inputTimer: null,
+    inputInFlight: false,
+    term: null,
+    fitAddon: null,
+    resizeObserver: null,
+    cols: 0,
+    rows: 0,
+    lastError: '',
+    container: null,
   };
 }
 
-function codeTerminalConnectionLabel() {
-  const prefix = codeTerminalState.backend === 'local-openssh' ? 'Local SSH' : 'SSH';
-  const target = codeTerminalState.host ? `${codeTerminalState.login}@${codeTerminalState.host}` : 'Connected';
+function codeTerminalTabs() {
+  if (!Array.isArray(codeTerminalState.tabs)) codeTerminalState.tabs = [];
+  return codeTerminalState.tabs;
+}
+
+function activeCodeTerminalTab(options = {}) {
+  const tabs = codeTerminalTabs();
+  let tab = tabs.find(item => item.clientId === codeTerminalState.activeId);
+  if (!tab && tabs.length) {
+    tab = tabs[0];
+    codeTerminalState.activeId = tab.clientId;
+  }
+  if (!tab && options.create !== false) {
+    tab = createCodeTerminalTab();
+    tabs.push(tab);
+    codeTerminalState.activeId = tab.clientId;
+  }
+  syncCodeTerminalState(tab || null);
+  return tab || null;
+}
+
+function syncCodeTerminalState(tab) {
+  codeTerminalState.id = tab?.id || '';
+  codeTerminalState.status = tab?.status || 'idle';
+  codeTerminalState.host = tab?.host || '';
+  codeTerminalState.login = tab?.login || '';
+  codeTerminalState.backend = tab?.backend || '';
+  codeTerminalState.seq = tab?.seq || 0;
+  codeTerminalState.polling = !!tab?.polling;
+  codeTerminalState.pollTimer = tab?.pollTimer || null;
+  codeTerminalState.eventSource = tab?.eventSource || null;
+  codeTerminalState.streaming = !!tab?.streaming;
+  codeTerminalState.starting = !!tab?.starting;
+  codeTerminalState.startPromise = tab?.startPromise || null;
+  codeTerminalState.pendingInput = tab?.pendingInput || '';
+  codeTerminalState.term = tab?.term || null;
+  codeTerminalState.fitAddon = tab?.fitAddon || null;
+  codeTerminalState.resizeObserver = tab?.resizeObserver || null;
+  codeTerminalState.cols = tab?.cols || 0;
+  codeTerminalState.rows = tab?.rows || 0;
+  codeTerminalState.lastError = tab?.lastError || '';
+}
+
+function codeTerminalDimensions(tab = activeCodeTerminalTab()) {
+  return window.CodeWorkspaceCore.terminalDimensions(
+    tab?.fitAddon?.proposeDimensions?.(),
+    {cols: tab?.term?.cols, rows: tab?.term?.rows},
+  );
+}
+
+function codeTerminalConnectionLabel(tab = activeCodeTerminalTab()) {
+  const prefix = tab?.backend === 'local-openssh' ? 'Local SSH' : 'SSH';
+  const target = tab?.host ? `${tab.login}@${tab.host}` : 'Connected';
   return `${prefix}: ${target}`;
 }
 
-function setCodeTerminalStatus(status, label) {
-  codeTerminalState.status = status;
+function setCodeTerminalStatus(status, label, tab = activeCodeTerminalTab()) {
+  if (tab) {
+    tab.status = status;
+    tab.statusLabel = label || status;
+  }
+  syncCodeTerminalState(tab || null);
+  renderCodeTerminalTabs();
+  const active = activeCodeTerminalTab({create: false});
   const el = $('code-terminal-status');
-  if (!el) return;
+  if (!el || !active || active !== tab) return;
   el.className = `code-terminal-status ${status}`;
   el.textContent = label || status;
 }
@@ -56,13 +130,42 @@ function codeTerminalTheme() {
   };
 }
 
-function ensureCodeTerminalRenderer() {
-  if (codeTerminalState.term) return codeTerminalState.term;
+function codeTerminalRoot() {
   const screen = $('code-terminal-screen');
-  if (!screen || !window.Terminal) return null;
-  screen.textContent = '';
-  const dims = codeTerminalDimensions();
-  const term = new window.Terminal({
+  if (!screen) return null;
+  let root = screen.querySelector('.code-terminal-root');
+  if (!root) {
+    screen.textContent = '';
+    root = document.createElement('div');
+    root.className = 'code-terminal-root';
+    screen.appendChild(root);
+  }
+  return root;
+}
+
+function activateCodeTerminalContainer(tab = activeCodeTerminalTab()) {
+  const root = codeTerminalRoot();
+  if (!root || !tab) return;
+  [...root.querySelectorAll('.code-terminal-instance')].forEach(node => {
+    node.classList.toggle('active', node.dataset.terminalClientId === tab.clientId);
+  });
+}
+
+function ensureCodeTerminalRenderer(tab = activeCodeTerminalTab()) {
+  if (!tab) return null;
+  if (tab.term) {
+    activateCodeTerminalContainer(tab);
+    return tab.term;
+  }
+  const root = codeTerminalRoot();
+  if (!root || !window.ApuanaTerminal) return null;
+  const container = document.createElement('div');
+  container.className = 'code-terminal-instance';
+  container.dataset.terminalClientId = tab.clientId;
+  root.appendChild(container);
+  tab.container = container;
+  const dims = codeTerminalDimensions(tab);
+  const term = new window.ApuanaTerminal.Terminal({
     cols: dims.cols,
     rows: dims.rows,
     cursorBlink: true,
@@ -75,108 +178,126 @@ function ensureCodeTerminalRenderer() {
     theme: codeTerminalTheme(),
     allowProposedApi: false,
   });
-  term.open(screen);
-  term.onData(sendCodeTerminalInput);
-  codeTerminalState.term = term;
-  requestAnimationFrame(resizeCodeTerminal);
+  const fitAddon = new window.ApuanaTerminal.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(container);
+  term.onData(data => sendCodeTerminalInput(data, tab.clientId));
+  tab.term = term;
+  tab.fitAddon = fitAddon;
+  if (window.ResizeObserver) {
+    tab.resizeObserver = new ResizeObserver(() => scheduleCodeTerminalResize(tab.clientId));
+    tab.resizeObserver.observe(container);
+  }
+  activateCodeTerminalContainer(tab);
+  requestAnimationFrame(() => resizeCodeTerminal(tab.clientId));
+  syncCodeTerminalState(tab);
   return term;
 }
 
-function writeCodeTerminal(data) {
-  const term = ensureCodeTerminalRenderer();
+function writeCodeTerminal(data, tab = activeCodeTerminalTab()) {
+  const term = ensureCodeTerminalRenderer(tab);
   if (!term) return;
-  term.write(String(data || ''), () => codeTerminalScrollToPrompt());
-}
-
-function codeTerminalScrollToPrompt() {
-  const term = codeTerminalState.term;
-  if (!term) return;
-  try {
-    term.scrollToBottom();
-  } catch (_) {}
-  requestAnimationFrame(() => {
-    try {
-      term.scrollToBottom();
-    } catch (_) {}
-  });
+  term.write(String(data || ''));
 }
 
 function clearCodeTerminalOutput() {
-  ensureCodeTerminalRenderer()?.clear();
+  const tab = activeCodeTerminalTab();
+  ensureCodeTerminalRenderer(tab)?.clear();
   focusCodeTerminal();
 }
 
-function stopCodeTerminalStream() {
-  if (codeTerminalState.eventSource) {
-    codeTerminalState.eventSource.close();
-    codeTerminalState.eventSource = null;
+function stopCodeTerminalStream(tab) {
+  if (!tab) return;
+  if (tab.eventSource) {
+    tab.eventSource.close();
+    tab.eventSource = null;
   }
-  codeTerminalState.streaming = false;
+  tab.streaming = false;
+  if (tab.pollTimer) {
+    clearTimeout(tab.pollTimer);
+    tab.pollTimer = null;
+  }
+  syncCodeTerminalState(activeCodeTerminalTab({create: false}));
 }
 
-function startCodeTerminalStream() {
-  if (!codeTerminalState.id || codeTerminalState.eventSource || !window.EventSource) return;
-  const url = `/api/terminal/events?id=${encodeURIComponent(codeTerminalState.id)}&since=${encodeURIComponent(codeTerminalState.seq || 0)}`;
+function startCodeTerminalStream(tab = activeCodeTerminalTab()) {
+  if (!tab?.id || tab.eventSource || !window.EventSource) return;
+  const url = `/api/terminal/events?id=${encodeURIComponent(tab.id)}&since=${encodeURIComponent(tab.seq || 0)}`;
   const source = new EventSource(url);
-  codeTerminalState.eventSource = source;
-  codeTerminalState.streaming = true;
+  tab.eventSource = source;
+  tab.streaming = true;
+  syncCodeTerminalState(tab);
 
   source.addEventListener('terminal', ev => {
     try {
       const data = JSON.parse(ev.data || '{}');
       if (!data.ok) throw new Error(data.error || 'Terminal stream ended.');
-      codeTerminalState.seq = Number(data.seq || codeTerminalState.seq || 0);
-      codeTerminalState.backend = data.backend || codeTerminalState.backend;
-      codeTerminalState.host = data.host || codeTerminalState.host;
-      codeTerminalState.login = data.login || codeTerminalState.login;
-      if (data.output) writeCodeTerminal(data.output);
-      setCodeTerminalStatus('connected', codeTerminalConnectionLabel());
-      if (data.alive === false) stopCodeTerminalStream();
+      tab.seq = Number(data.seq || tab.seq || 0);
+      tab.backend = data.backend || tab.backend;
+      tab.host = data.host || tab.host;
+      tab.login = data.login || tab.login;
+      if (data.output) writeCodeTerminal(data.output, tab);
+      setCodeTerminalStatus('connected', codeTerminalConnectionLabel(tab), tab);
+      if (data.alive === false) stopCodeTerminalStream(tab);
     } catch (err) {
-      setCodeTerminalStatus('error', err?.message || 'Terminal stream error');
-      stopCodeTerminalStream();
+      setCodeTerminalStatus('error', err?.message || 'Terminal stream error', tab);
+      stopCodeTerminalStream(tab);
     }
   });
 
   source.addEventListener('error', ev => {
-    void ev;
-    if (!codeTerminalState.id) return;
-    setCodeTerminalStatus('connecting', 'Reconnecting terminal...');
+    if (!tab.id) return;
+    if (ev?.data) {
+      try {
+        const data = JSON.parse(ev.data);
+        setCodeTerminalStatus('error', data.error || 'Terminal session ended.', tab);
+        stopCodeTerminalStream(tab);
+        tab.id = '';
+        tab.seq = 0;
+        return;
+      } catch (_) {}
+    }
+    setCodeTerminalStatus('connecting', 'Reconnecting terminal...', tab);
   });
 }
 
-async function pollCodeTerminalFallback() {
-  if (!codeTerminalState.open || !codeTerminalState.id || codeTerminalState.polling || codeTerminalState.eventSource) return;
-  codeTerminalState.polling = true;
+async function pollCodeTerminalFallback(tab = activeCodeTerminalTab()) {
+  if (!codeTerminalState.open || !tab?.id || tab.polling || tab.eventSource) return;
+  tab.polling = true;
   try {
-    const response = await apiFetch('/api/terminal/read?id=' + encodeURIComponent(codeTerminalState.id));
+    const response = await apiFetch('/api/terminal/read?id=' + encodeURIComponent(tab.id));
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || 'Terminal session ended.');
-    if (data.output) writeCodeTerminal(data.output);
-    setCodeTerminalStatus('connected', codeTerminalConnectionLabel());
+    if (data.output) writeCodeTerminal(data.output, tab);
+    setCodeTerminalStatus('connected', codeTerminalConnectionLabel(tab), tab);
   } catch (err) {
-    setCodeTerminalStatus('error', err?.message || 'Terminal error');
+    setCodeTerminalStatus('error', err?.message || 'Terminal error', tab);
     return;
   } finally {
-    codeTerminalState.polling = false;
+    tab.polling = false;
   }
-  codeTerminalState.pollTimer = setTimeout(pollCodeTerminalFallback, 500);
+  tab.pollTimer = setTimeout(() => pollCodeTerminalFallback(tab), 500);
 }
 
-async function ensureCodeTerminalSession() {
-  ensureCodeTerminalRenderer();
-  if (codeTerminalState.id) {
-    startCodeTerminalStream();
-    if (!window.EventSource) pollCodeTerminalFallback();
+async function ensureCodeTerminalSession(tab = activeCodeTerminalTab()) {
+  if (!tab) return false;
+  ensureCodeTerminalRenderer(tab);
+  if (!window.CodeWorkspaceCore.terminalCanStart(sshAuth)) {
+    setCodeTerminalStatus('idle', 'Waiting for SSH login', tab);
+    return false;
+  }
+  if (tab.id) {
+    startCodeTerminalStream(tab);
+    if (!window.EventSource) pollCodeTerminalFallback(tab);
     return true;
   }
-  if (codeTerminalState.startPromise) return codeTerminalState.startPromise;
+  if (tab.startPromise) return tab.startPromise;
 
-  setCodeTerminalStatus('connecting', 'Starting local SSH...');
-  codeTerminalState.starting = true;
-  codeTerminalState.startPromise = (async () => {
+  setCodeTerminalStatus('connecting', 'Starting local SSH...', tab);
+  tab.starting = true;
+  tab.startPromise = (async () => {
     try {
-      const dims = codeTerminalDimensions();
+      const dims = codeTerminalDimensions(tab);
       const cwd = codeState.path || codeState.project || transferState.home || '';
       const response = await apiFetch('/api/terminal/start', {
         method: 'POST',
@@ -185,38 +306,46 @@ async function ensureCodeTerminalSession() {
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || 'Could not start terminal.');
-      codeTerminalState.id = data.id || '';
-      codeTerminalState.host = data.host || '';
-      codeTerminalState.login = data.login || '';
-      codeTerminalState.backend = data.backend || '';
-      codeTerminalState.seq = Number(data.seq || 0);
-      if (data.output) writeCodeTerminal(data.output);
-      setCodeTerminalStatus('connected', codeTerminalConnectionLabel());
-      startCodeTerminalStream();
-      if (!window.EventSource) pollCodeTerminalFallback();
-      if (codeTerminalState.pendingInput) {
-        const pending = codeTerminalState.pendingInput;
-        codeTerminalState.pendingInput = '';
-        sendCodeTerminalInput(pending);
+      tab.id = data.id || '';
+      tab.host = data.host || '';
+      tab.login = data.login || '';
+      tab.backend = data.backend || '';
+      tab.seq = Number(data.seq || 0);
+      tab.lastError = '';
+      if (data.output) writeCodeTerminal(data.output, tab);
+      setCodeTerminalStatus('connected', codeTerminalConnectionLabel(tab), tab);
+      requestAnimationFrame(() => resizeCodeTerminal(tab.clientId));
+      startCodeTerminalStream(tab);
+      if (!window.EventSource) pollCodeTerminalFallback(tab);
+      if (tab.pendingInput) {
+        const pending = tab.pendingInput;
+        tab.pendingInput = '';
+        sendCodeTerminalInput(pending, tab.clientId);
       }
       return true;
     } catch (err) {
-      setCodeTerminalStatus('error', err?.message || 'Terminal error');
-      writeCodeTerminal(`\r\n${err?.message || 'Could not start terminal.'}\r\n`);
+      const message = err?.message || 'Could not start terminal.';
+      setCodeTerminalStatus('error', message, tab);
+      if (!message.toLowerCase().includes('ssh login required') && tab.lastError !== message) {
+        writeCodeTerminal(`\r\n[Apuana Monitor] ${message}\r\n`, tab);
+      }
+      tab.lastError = message;
       return false;
     } finally {
-      codeTerminalState.starting = false;
-      codeTerminalState.startPromise = null;
+      tab.starting = false;
+      tab.startPromise = null;
+      syncCodeTerminalState(activeCodeTerminalTab({create: false}));
     }
   })();
-  return codeTerminalState.startPromise;
+  return tab.startPromise;
 }
 
 function warmCodeTerminalSession() {
-  ensureCodeTerminalSession();
+  ensureCodeTerminalSession(activeCodeTerminalTab());
 }
 
 function scheduleCodeTerminalStart() {
+  if (!window.CodeWorkspaceCore.terminalCanStart(sshAuth)) return;
   if (typeof requestIdleCallback === 'function') {
     requestIdleCallback(warmCodeTerminalSession, {timeout: 80});
   } else {
@@ -225,7 +354,41 @@ function scheduleCodeTerminalStart() {
 }
 
 function focusCodeTerminal() {
-  ensureCodeTerminalRenderer()?.focus();
+  ensureCodeTerminalRenderer(activeCodeTerminalTab())?.focus();
+}
+
+function scheduleCodeWorkspaceRelayout() {
+  requestAnimationFrame(() => {
+    try {
+      if (typeof codeMonacoEditor !== 'undefined') codeMonacoEditor?.layout?.();
+    } catch (_) {}
+    scheduleCodeTerminalResize();
+    requestAnimationFrame(() => {
+      try {
+        if (typeof codeMonacoEditor !== 'undefined') codeMonacoEditor?.layout?.();
+      } catch (_) {}
+      scheduleCodeTerminalResize();
+    });
+  });
+}
+
+function renderCodeTerminalTabs() {
+  const wrap = $('code-terminal-tabs');
+  if (!wrap) return;
+  if (!codeTerminalTabs().length) activeCodeTerminalTab();
+  const active = activeCodeTerminalTab({create: false});
+  wrap.innerHTML = codeTerminalTabs().map(tab => `
+    <button class="code-terminal-tab ${tab.clientId === active?.clientId ? 'active' : ''} ${tab.status || 'idle'}" type="button" data-code-terminal-tab="${esc(tab.clientId)}" title="${esc(tab.statusLabel || tab.title)}">
+      <svg viewBox="0 0 24 24"><path d="m4 17 6-5-6-5"/><path d="M12 19h8"/></svg>
+      <span>${esc(tab.title)}</span>
+      ${codeTerminalTabs().length > 1 ? `<span class="code-terminal-tab-close" role="button" aria-label="Close ${esc(tab.title)}" data-code-terminal-close="${esc(tab.clientId)}">×</span>` : ''}
+    </button>
+  `).join('');
+  const add = $('code-terminal-new');
+  if (add) {
+    add.disabled = codeTerminalTabs().length >= CODE_TERMINAL_MAX_TABS;
+    add.title = add.disabled ? `Maximum of ${CODE_TERMINAL_MAX_TABS} terminal tabs` : 'New terminal tab';
+  }
 }
 
 async function openCodeTerminalPanel() {
@@ -242,7 +405,10 @@ async function openCodeTerminalPanel() {
     toggle.setAttribute('aria-label', 'Close Apuana terminal');
     toggle.setAttribute('title', 'Close Apuana terminal');
   }
-  ensureCodeTerminalRenderer();
+  const tab = activeCodeTerminalTab();
+  renderCodeTerminalTabs();
+  ensureCodeTerminalRenderer(tab);
+  scheduleCodeWorkspaceRelayout();
   focusCodeTerminal();
   scheduleCodeTerminalStart();
 }
@@ -260,6 +426,7 @@ function closeCodeTerminalPanel() {
     toggle.setAttribute('aria-label', 'Open Apuana terminal');
     toggle.setAttribute('title', 'Open Apuana terminal');
   }
+  scheduleCodeWorkspaceRelayout();
 }
 
 function toggleCodeTerminalPanel() {
@@ -267,67 +434,141 @@ function toggleCodeTerminalPanel() {
   else openCodeTerminalPanel();
 }
 
-function queueCodeTerminalInput(data) {
-  codeTerminalState.pendingInput = (codeTerminalState.pendingInput + data).slice(-8192);
-  setCodeTerminalStatus('connecting', 'Starting local SSH...');
-  warmCodeTerminalSession();
+function selectCodeTerminalTab(clientId) {
+  const tab = codeTerminalTabs().find(item => item.clientId === clientId);
+  if (!tab) return;
+  codeTerminalState.activeId = tab.clientId;
+  syncCodeTerminalState(tab);
+  renderCodeTerminalTabs();
+  activateCodeTerminalContainer(tab);
+  const status = $('code-terminal-status');
+  if (status) {
+    status.className = `code-terminal-status ${tab.status || 'idle'}`;
+    status.textContent = tab.statusLabel || (tab.id ? codeTerminalConnectionLabel(tab) : 'Idle');
+  }
+  scheduleCodeWorkspaceRelayout();
+  focusCodeTerminal();
+  ensureCodeTerminalSession(tab);
 }
 
-function sendCodeTerminalInput(data) {
+function newCodeTerminalTab() {
+  if (codeTerminalTabs().length >= CODE_TERMINAL_MAX_TABS) {
+    const tab = activeCodeTerminalTab();
+    setCodeTerminalStatus('error', `Terminal limit reached (${CODE_TERMINAL_MAX_TABS} max)`, tab);
+    return;
+  }
+  const tab = createCodeTerminalTab();
+  codeTerminalTabs().push(tab);
+  codeTerminalState.activeId = tab.clientId;
+  renderCodeTerminalTabs();
+  if (!codeTerminalState.open) openCodeTerminalPanel();
+  else {
+    ensureCodeTerminalRenderer(tab);
+    selectCodeTerminalTab(tab.clientId);
+  }
+}
+
+function disposeCodeTerminalTab(tab) {
+  stopCodeTerminalStream(tab);
+  if (tab.inputTimer) clearTimeout(tab.inputTimer);
+  if (tab.resizeObserver) tab.resizeObserver.disconnect();
+  try {
+    tab.term?.dispose?.();
+  } catch (_) {}
+  tab.container?.remove?.();
+  if (tab.id) {
+    apiFetch('/api/terminal/stop', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: tab.id}),
+    }).catch(() => {});
+  }
+}
+
+function closeCodeTerminalTab(clientId) {
+  const tabs = codeTerminalTabs();
+  const index = tabs.findIndex(tab => tab.clientId === clientId);
+  if (index < 0) return;
+  const [tab] = tabs.splice(index, 1);
+  disposeCodeTerminalTab(tab);
+  if (!tabs.length) tabs.push(createCodeTerminalTab());
+  const next = tabs[Math.min(index, tabs.length - 1)];
+  codeTerminalState.activeId = next.clientId;
+  syncCodeTerminalState(next);
+  renderCodeTerminalTabs();
+  activateCodeTerminalContainer(next);
+  scheduleCodeWorkspaceRelayout();
+}
+
+function queueCodeTerminalInput(data, clientId = codeTerminalState.activeId) {
+  const tab = codeTerminalTabs().find(item => item.clientId === clientId) || activeCodeTerminalTab();
+  if (!tab) return;
+  tab.pendingInput = (tab.pendingInput + data).slice(-8192);
+  setCodeTerminalStatus('connecting', 'Starting local SSH...', tab);
+  ensureCodeTerminalSession(tab);
+}
+
+function sendCodeTerminalInput(data, clientId = codeTerminalState.activeId) {
   if (!data) return Promise.resolve(false);
-  if (!codeTerminalState.id) {
-    queueCodeTerminalInput(data);
+  const tab = codeTerminalTabs().find(item => item.clientId === clientId) || activeCodeTerminalTab();
+  if (!tab?.id) {
+    queueCodeTerminalInput(data, clientId);
     return Promise.resolve(false);
   }
-  codeTerminalInputBuffer += data;
-  if (!codeTerminalInputTimer) {
-    codeTerminalInputTimer = setTimeout(flushCodeTerminalInput, CODE_TERMINAL_INPUT_FLUSH_MS);
+  tab.inputBuffer += data;
+  if (!tab.inputTimer) {
+    tab.inputTimer = setTimeout(() => flushCodeTerminalInput(tab), CODE_TERMINAL_INPUT_FLUSH_MS);
   }
   return Promise.resolve(true);
 }
 
-async function flushCodeTerminalInput() {
-  codeTerminalInputTimer = null;
-  if (codeTerminalInputInFlight || !codeTerminalState.id || !codeTerminalInputBuffer) return;
-  const data = codeTerminalInputBuffer;
-  codeTerminalInputBuffer = '';
-  codeTerminalInputInFlight = true;
+async function flushCodeTerminalInput(tab = activeCodeTerminalTab()) {
+  if (!tab) return;
+  tab.inputTimer = null;
+  if (tab.inputInFlight || !tab.id || !tab.inputBuffer) return;
+  const data = tab.inputBuffer;
+  tab.inputBuffer = '';
+  tab.inputInFlight = true;
   try {
     const response = await apiFetch('/api/terminal/input', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: codeTerminalState.id, data}),
+      body: JSON.stringify({id: tab.id, data}),
     });
     const body = await response.json();
     if (!response.ok || !body.ok) throw new Error(body.error || 'Could not write to terminal.');
-    setCodeTerminalStatus('connected', codeTerminalConnectionLabel());
+    setCodeTerminalStatus('connected', codeTerminalConnectionLabel(tab), tab);
   } catch (err) {
-    setCodeTerminalStatus('error', err?.message || 'Terminal error');
+    setCodeTerminalStatus('error', err?.message || 'Terminal error', tab);
   } finally {
-    codeTerminalInputInFlight = false;
-    if (codeTerminalInputBuffer) flushCodeTerminalInput();
+    tab.inputInFlight = false;
+    if (tab.inputBuffer) flushCodeTerminalInput(tab);
   }
 }
 
-function resizeCodeTerminal() {
-  const term = codeTerminalState.term;
-  if (!term || !codeTerminalState.id) return;
-  const dims = codeTerminalDimensions();
-  if (dims.cols === codeTerminalState.cols && dims.rows === codeTerminalState.rows) return;
-  codeTerminalState.cols = dims.cols;
-  codeTerminalState.rows = dims.rows;
-  term.resize(dims.cols, dims.rows);
-  codeTerminalScrollToPrompt();
+function resizeCodeTerminal(clientId = codeTerminalState.activeId) {
+  const tab = codeTerminalTabs().find(item => item.clientId === clientId) || activeCodeTerminalTab({create: false});
+  const term = tab?.term;
+  if (!tab || !term || !tab.id) return;
+  try {
+    tab.fitAddon?.fit?.();
+  } catch (_) {}
+  const dims = codeTerminalDimensions(tab);
+  if (dims.cols === tab.cols && dims.rows === tab.rows) return;
+  tab.cols = dims.cols;
+  tab.rows = dims.rows;
+  if (term.cols !== dims.cols || term.rows !== dims.rows) term.resize(dims.cols, dims.rows);
   apiFetch('/api/terminal/resize', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id: codeTerminalState.id, cols: dims.cols, rows: dims.rows}),
+    body: JSON.stringify({id: tab.id, cols: dims.cols, rows: dims.rows}),
   }).catch(() => {});
+  syncCodeTerminalState(activeCodeTerminalTab({create: false}));
 }
 
-function scheduleCodeTerminalResize() {
+function scheduleCodeTerminalResize(clientId = codeTerminalState.activeId) {
   if (codeTerminalResizeTimer) clearTimeout(codeTerminalResizeTimer);
-  codeTerminalResizeTimer = setTimeout(resizeCodeTerminal, 80);
+  codeTerminalResizeTimer = setTimeout(() => resizeCodeTerminal(clientId), 80);
 }
 
 function interruptCodeTerminal() {
@@ -335,7 +576,18 @@ function interruptCodeTerminal() {
   focusCodeTerminal();
 }
 
-function handleCodeTerminalKeydown() {}
-function pasteCodeTerminalText() {}
+document.addEventListener('click', ev => {
+  const close = ev.target.closest?.('[data-code-terminal-close]');
+  if (close) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeCodeTerminalTab(close.getAttribute('data-code-terminal-close') || '');
+    return;
+  }
+  const tab = ev.target.closest?.('[data-code-terminal-tab]');
+  if (tab) {
+    selectCodeTerminalTab(tab.getAttribute('data-code-terminal-tab') || '');
+  }
+});
 
-window.addEventListener('resize', scheduleCodeTerminalResize);
+window.addEventListener('resize', () => scheduleCodeTerminalResize());

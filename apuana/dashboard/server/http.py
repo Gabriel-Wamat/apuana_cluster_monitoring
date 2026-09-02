@@ -19,7 +19,14 @@ from .code_browser import (
 from .fs import _fs_payload
 from .local_picker import _choose_local_folder
 from .logs import _log_files_payload
-from .remote_files import _delete_remote_path, _explorer_payload, _read_remote_file, _write_remote_file
+from .remote_files import (
+    _delete_remote_path,
+    _explorer_payload,
+    _move_remote_path,
+    _read_remote_file,
+    _read_remote_image,
+    _write_remote_file,
+)
 from .research import (
     research_artifact_file_payload,
     research_artifacts_payload,
@@ -245,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
                 client = _connect_ssh(host, login, password)
                 stdin, stdout, stderr = client.exec_command("echo $HOME", timeout=6)
                 _ = stdin, stderr
-                home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/CIN/{login}"
+                home = stdout.read().decode("utf-8", errors="replace").strip() or f"/home/{login}"
             except Exception as exc:
                 code, payload = _login_failure_payload(exc)
                 self._json(code, payload)
@@ -363,8 +370,14 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_auth():
                 return
             payload = self._read_json_body()
-            result = _code_file_save_payload(payload.get("path") or "", payload.get("content") or "")
-            self._json(200 if result.get("ok") else 400, result)
+            result = _code_file_save_payload(
+                payload.get("path") or "",
+                payload.get("content") or "",
+                payload.get("expected_revision") or "",
+                bool(payload.get("force")),
+            )
+            status = 200 if result.get("ok") else 409 if result.get("code") == "revision_conflict" else 400
+            self._json(status, result)
             return
 
         if parsed.path == "/api/code/create":
@@ -400,6 +413,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             payload = self._read_json_body()
             result = _delete_remote_path(payload.get("path") or "")
+            self._json(200 if result.get("ok") else 400, result)
+            return
+
+        if parsed.path == "/api/remote/move":
+            if not self._require_auth():
+                return
+            payload = self._read_json_body()
+            result = _move_remote_path(
+                payload.get("sourcePath") or payload.get("source") or "",
+                payload.get("destinationPath") or payload.get("destination") or "",
+            )
             self._json(200 if result.get("ok") else 400, result)
             return
 
@@ -588,6 +612,16 @@ class Handler(BaseHTTPRequestHandler):
             path = qs.get("path", [""])[0]
             body = json.dumps(_read_remote_file(path)).encode()
             self._send(200, "application/json", body)
+        elif parsed.path == "/api/preview/image":
+            if not self._require_auth():
+                return
+            path = qs.get("path", [""])[0]
+            payload, body = _read_remote_image(path)
+            if not payload.get("ok"):
+                status = 413 if payload.get("code") == "image_too_large" else 400
+                self._json(status, payload)
+                return
+            self._send(200, payload.get("content_type") or "application/octet-stream", body)
         elif parsed.path == "/api/code/projects":
             if not self._require_auth():
                 return
@@ -630,7 +664,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             terminal_id = qs.get("id", [""])[0]
             try:
-                since = int(qs.get("since", ["0"])[0] or "0")
+                # EventSource sends Last-Event-ID automatically after a broken
+                # connection. Prefer it over the initial query parameter so a
+                # reconnect resumes instead of replaying old terminal output.
+                since = int(self.headers.get("Last-Event-ID") or qs.get("since", ["0"])[0] or "0")
             except ValueError:
                 since = 0
             self.send_response(200)
@@ -645,6 +682,8 @@ class Handler(BaseHTTPRequestHandler):
                 event = "terminal" if payload.get("ok") else "error"
                 body = json.dumps(payload).encode("utf-8")
                 try:
+                    if payload.get("ok"):
+                        self.wfile.write(b"id: " + str(since).encode("ascii") + b"\n")
                     self.wfile.write(b"event: " + event.encode("ascii") + b"\n")
                     self.wfile.write(b"data: " + body + b"\n\n")
                     self.wfile.flush()

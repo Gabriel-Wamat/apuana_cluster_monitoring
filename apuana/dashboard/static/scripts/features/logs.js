@@ -195,7 +195,7 @@ function isLogHomePath(path) {
   const candidates = [
     logState.home,
     transferState.home,
-    transferState.user ? `/home/CIN/${transferState.user}` : '',
+    transferState.user ? `/home/${transferState.user}` : '',
   ].filter(Boolean);
   return candidates.some(home => normalizedPath === String(home).replace(/\/+$/, ''));
 }

@@ -594,17 +594,53 @@ function clusterBootError(d) {
 }
 
 function isClusterBootReady(d) {
-  if (!d || !d.ts) return false;
-  return Boolean(d.queue?.ok && d.sinfo?.ok && d.resources?.ok);
+  if (typeof CodeWorkspaceCore !== 'undefined' && CodeWorkspaceCore.clusterSnapshotReady) {
+    return CodeWorkspaceCore.clusterSnapshotReady(d);
+  }
+  return Boolean(d?.ts && d.queue?.ok && d.sinfo?.ok && d.resources?.ok);
+}
+
+function isAuthenticatedShellReady(d) {
+  if (typeof CodeWorkspaceCore !== 'undefined' && CodeWorkspaceCore.authenticatedShellReady) {
+    return CodeWorkspaceCore.authenticatedShellReady(d);
+  }
+  return Boolean(d?.user || d?.node || d?.transfer?.home);
 }
 
 function keepClusterLoader(d) {
   const detail = clusterBootError(d);
   showInitialLoader(
     'Carregando dados do cluster...',
-    detail ? 'Aguardando resposta do Apuana. Verifique a VPN do CIn se demorar.' : 'Conectando ao Apuana via SSH'
+    detail ? 'Aguardando resposta completa do SLURM.' : 'Coletando snapshot do SLURM'
   );
-  $('chip-node').textContent = 'Conectando ao Apuana...';
+  $('chip-node').textContent = isAuthenticatedShellReady(d)
+    ? `${d?.node || 'Apuana'} - carregando dados SLURM`
+    : 'Conectando ao Apuana...';
+}
+
+function showClusterBootNotice(d) {
+  const detail = clusterBootError(d) || 'A sessão SSH está ativa, mas o snapshot do SLURM ainda não chegou.';
+  const kpis = $('kpis');
+  const resource = $('resource-summary');
+  const users = $('users-table');
+  const queue = $('q-global');
+  const health = $('health-list');
+  const disks = $('disks');
+  const mem = $('sys-mem');
+  const clusterTable = $('cluster-table');
+  const clusterBars = $('cluster-bars');
+  const notice = `<div class="alert a-warn">${esc(detail)}</div>`;
+
+  if (kpis) kpis.innerHTML = '';
+  if (resource) resource.innerHTML = notice;
+  if (users) users.innerHTML = notice;
+  if (queue) queue.innerHTML = notice;
+  if (health) health.innerHTML = notice;
+  if (disks) disks.innerHTML = '<p class="empty">Aguardando dados.</p>';
+  if (mem) mem.innerHTML = '<p class="empty">Aguardando dados.</p>';
+  if (clusterTable) clusterTable.innerHTML = notice;
+  if (clusterBars) clusterBars.innerHTML = '<p class="empty">Aguardando dados.</p>';
+  renderQueuePerformance();
 }
 
 function updateNetworkChip(latencyMs) {
@@ -627,12 +663,17 @@ function updateNetworkChip(latencyMs) {
 /* render - called after every poll */
 function render(d) {
   d = d || {};
-  if (!d.ts) {
-    $('chip-node').textContent = 'Loading Apuana...';
+  if (!isAuthenticatedShellReady(d)) {
+    keepClusterLoader(d);
     return;
   }
 
-  if (!isClusterBootReady(d)) {
+  const clusterReady = isClusterBootReady(d);
+  if (!clusterReady) {
+    clusterDataReady = false;
+    clusterBootNoticeShown = false;
+    syncTransferMeta(d);
+    if (typeof renderUserSettings === 'function') renderUserSettings();
     keepClusterLoader(d);
     return;
   }

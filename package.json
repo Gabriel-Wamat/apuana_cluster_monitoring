@@ -1,0 +1,20 @@
+{
+  "name": "apuana-monitor-code-workspace",
+  "private": true,
+  "scripts": {
+    "build:code-vendor": "node scripts/build-code-vendor.mjs",
+    "check:js": "find apuana/dashboard/static/scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test tests/js/*.test.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "monaco-editor": "^0.56.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "overrides": {
+    "dompurify": "^3.4.13"
+  }
+}

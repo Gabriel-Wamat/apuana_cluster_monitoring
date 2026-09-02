@@ -1,6 +1,7 @@
 initSshLogin();
 bootstrapSshAuth();
 initSidebarToggle();
+initCodeSidebarCollapse();
 initUserSettings();
 initCustomSelect('job-queue-sel', {
   pickerId: 'job-queue-picker',
@@ -125,6 +126,7 @@ $('remote-delete-confirm')?.addEventListener('click', confirmRemoteDelete);
 $('remote-edit-cancel')?.addEventListener('click', closeRemoteEdit);
 $('remote-edit-close')?.addEventListener('click', closeRemoteEdit);
 $('remote-edit-save')?.addEventListener('click', saveRemoteEdit);
+$('remote-image-close')?.addEventListener('click', closeRemoteImagePreview);
 $('code-project-select')?.addEventListener('change', ev => {
   codeState.project = ev.target.value || '';
   codeState.path = codeState.project;
@@ -138,6 +140,7 @@ $('code-search')?.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') closeCodeFolderMenu();
 });
 $('code-folder-select')?.addEventListener('click', toggleCodeFolderMenu);
+$('code-sidebar-collapse')?.addEventListener('click', toggleCodeSidebarCollapse);
 $('code-up')?.addEventListener('click', codeUpFolder);
 $('code-refresh')?.addEventListener('click', () => {
   codeListCache.clear();
@@ -162,11 +165,13 @@ $('code-terminal-toggle')?.addEventListener('click', toggleCodeTerminalPanel);
 $('code-terminal-toggle')?.addEventListener('pointerenter', () => {
   if (typeof scheduleCodeTerminalStart === 'function') scheduleCodeTerminalStart();
 });
+$('code-terminal-new')?.addEventListener('click', newCodeTerminalTab);
 $('code-terminal-close')?.addEventListener('click', closeCodeTerminalPanel);
 $('code-terminal-clear')?.addEventListener('click', clearCodeTerminalOutput);
 $('code-terminal-interrupt')?.addEventListener('click', interruptCodeTerminal);
-$('code-terminal-screen')?.addEventListener('keydown', handleCodeTerminalKeydown);
-$('code-terminal-screen')?.addEventListener('paste', pasteCodeTerminalText);
+$('code-conflict-cancel')?.addEventListener('click', closeCodeConflictModal);
+$('code-conflict-reload')?.addEventListener('click', reloadConflictedCodeFile);
+$('code-conflict-overwrite')?.addEventListener('click', overwriteConflictedCodeFile);
 $('remote-delete-modal')?.addEventListener('click', ev => {
   if (ev.target === $('remote-delete-modal')) closeRemoteDelete();
 });
@@ -175,6 +180,14 @@ $('remote-import-modal')?.addEventListener('click', ev => {
 });
 $('remote-edit-modal')?.addEventListener('click', ev => {
   if (ev.target === $('remote-edit-modal')) closeRemoteEdit();
+});
+$('remote-image-modal')?.addEventListener('click', ev => {
+  if (ev.target === $('remote-image-modal')) closeRemoteImagePreview();
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && $('remote-image-modal')?.classList.contains('open')) {
+    closeRemoteImagePreview();
+  }
 });
 $('code-create-modal')?.addEventListener('click', ev => {
   if (ev.target === $('code-create-modal')) closeCodeCreateModal();

@@ -15,6 +15,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 
@@ -87,6 +89,41 @@ def wait_for_local_port(port: int, timeout: float) -> bool:
             return True
         time.sleep(0.025)
     return local_port_is_open(port)
+
+
+def dashboard_responds(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=0.6) as response:
+            body = response.read(4096).decode("utf-8", errors="ignore")
+        return "Apuana Monitor" in body
+    except Exception:
+        return False
+
+
+def dashboard_has_snapshot(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api", timeout=0.8) as response:
+            payload = json.loads(response.read(4096).decode("utf-8", errors="ignore") or "{}")
+        return bool(payload.get("ts"))
+    except Exception:
+        return False
+
+
+def select_port(preferred: int) -> int:
+    if not local_port_is_open(preferred):
+        return preferred
+    if dashboard_responds(preferred) and dashboard_has_snapshot(preferred):
+        return preferred
+
+    for candidate in [8520, *range(8502, 8520), *range(8521, 8600)]:
+        if not local_port_is_open(candidate):
+            log(f"preferred port {preferred} is occupied by another service; using {candidate}")
+            return candidate
+        if dashboard_responds(candidate) and dashboard_has_snapshot(candidate):
+            log(f"preferred port {preferred} is occupied; reusing Apuana on {candidate}")
+            return candidate
+
+    raise RuntimeError("no available local port for Apuana Monitor")
 
 
 def loading_page_html(status: str = "Preparando o servidor local.") -> str:
@@ -210,9 +247,6 @@ def relaunch_with_venv_python() -> None:
 
 
 def open_app_window(url: str, port: int, wait_for_ready: bool = True) -> bool:
-    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
-    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
-
     try:
         import webview
     except Exception as exc:
@@ -260,25 +294,67 @@ def open_app_window(url: str, port: int, wait_for_ready: bool = True) -> bool:
                 return
             window.load_url(url)
 
+        webview_kwargs = {"debug": False}
+        if platform.system().lower() == "darwin":
+            os.environ.pop("PYWEBVIEW_GUI", None)
+
         if wait_for_ready and not local_port_is_open(port):
-            webview.start(load_when_ready)
+            webview.start(load_when_ready, **webview_kwargs)
         else:
-            webview.start()
+            webview.start(**webview_kwargs)
         return True
     except Exception as exc:
         log(f"pywebview window failed: {exc}")
         return False
 
 
+def open_browser_dashboard(url: str) -> None:
+    system = platform.system().lower()
+    commands: list[list[str]] = []
+
+    if system == "darwin":
+        commands = [["open", url]]
+    elif os.name == "nt":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return
+        except Exception:
+            commands = [["cmd", "/c", "start", "", url]]
+    else:
+        commands = [
+            ["xdg-open", url],
+            ["gio", "open", url],
+            ["kde-open", url],
+            ["sensible-browser", url],
+            ["x-www-browser", url],
+        ]
+
+    for command in commands:
+        if command[0] != "cmd" and not shutil.which(command[0]):
+            continue
+        try:
+            subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception as exc:
+            log(f"browser opener failed {' '.join(command)}: {exc}")
+
+    webbrowser.open(url)
+
+
 def open_dashboard(url: str, port: int, wait_for_ready: bool = True) -> bool:
     if open_app_window(url, port, wait_for_ready):
         return True
-    log("native app window could not be opened; browser fallback is disabled")
-    return False
+    if os.environ.get("APUANA_MONITOR_DISABLE_BROWSER_FALLBACK") == "1":
+        log("native app window failed and browser fallback is disabled")
+        return False
+    log("native app window could not be opened; falling back to browser")
+    open_browser_dashboard(url)
+    return True
 
 
 def main() -> int:
-    port = int(os.environ.get("SLURM_MONITOR_PORT", "8501"))
+    requested_port = int(os.environ.get("SLURM_MONITOR_PORT", "8501"))
+    port = select_port(requested_port)
     url = f"http://127.0.0.1:{port}/"
     log(f"desktop launcher started for {url}")
 

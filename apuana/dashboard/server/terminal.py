@@ -1,6 +1,6 @@
+import codecs
 import os
 import shlex
-import shutil
 import subprocess
 import threading
 import time
@@ -9,15 +9,18 @@ import uuid
 from .runtime import _connect_ssh, _session, _session_client, _session_lock
 
 _terminal_lock = threading.RLock()
-_terminal = None
+_terminals: dict[str, "_TerminalSession"] = {}
 _MAX_INPUT_BYTES = 8192
 _MAX_READ_BYTES = 131072
 _MAX_TERMINAL_HISTORY = 180000
+_OUTPUT_CHUNK_CHARS = 16384
+_MAX_TERMINAL_SESSIONS = 4
 
 
 class _ParamikoTerminal:
     def __init__(self, channel) -> None:
         self.channel = channel
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
     def is_alive(self) -> bool:
         try:
@@ -63,10 +66,14 @@ class _ParamikoTerminal:
 
         if not chunks:
             return ""
-        return b"".join(chunks).decode("utf-8", errors="replace")
+        return self._decoder.decode(b"".join(chunks), final=False)
 
     def send(self, data: str) -> None:
-        self.channel.send(data)
+        sendall = getattr(self.channel, "sendall", None)
+        if callable(sendall):
+            sendall(data)
+        else:
+            self.channel.send(data)
 
     def resize(self, cols: int, rows: int) -> None:
         self.channel.resize_pty(width=cols, height=rows)
@@ -78,177 +85,81 @@ class _ParamikoTerminal:
             pass
 
 
-class _OpenSshTerminal:
-    def __init__(self, target: str, cols: int, rows: int, password: str = "") -> None:
-        self.target = target
-        self.proc = None
-        self.master_fd = None
-        self._buffer = bytearray()
-        self._buffer_lock = threading.Lock()
-        self._reader = None
+class _OpenSshPtyTerminal:
+    """Interactive PTY for sessions authenticated through local OpenSSH config."""
 
+    def __init__(self, target: str, cols: int, rows: int) -> None:
         if os.name == "nt":
-            self.proc = subprocess.Popen(
-                ["ssh", "-o", "BatchMode=yes", target],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=0,
-            )
-            self._reader = threading.Thread(target=self._read_pipe_loop, daemon=True)
-            self._reader.start()
-        else:
-            import fcntl
-            import pty
+            raise RuntimeError("Interactive OpenSSH terminal is unavailable on this platform.")
+        import fcntl
+        import pty
 
-            master, slave = pty.openpty()
-            self.master_fd = master
+        master, slave = pty.openpty()
+        self.master_fd = master
+        self.proc = None
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        try:
             self._resize_pty(cols, rows)
-            batch_mode = "no" if password else "yes"
             self.proc = subprocess.Popen(
-                ["ssh", "-tt", "-o", f"BatchMode={batch_mode}", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", target],
+                [
+                    "ssh", "-tt", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                    "-o", "ServerAliveInterval=30", target,
+                ],
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,
                 close_fds=True,
             )
-            os.close(slave)
             flags = fcntl.fcntl(master, fcntl.F_GETFL)
             fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-            if password:
-                self._complete_password_auth(password)
-
-    def _append_buffer(self, chunk: bytes) -> None:
-        if not chunk:
-            return
-        with self._buffer_lock:
-            self._buffer.extend(chunk)
-
-    def _drain_buffer(self, limit: int) -> bytes:
-        with self._buffer_lock:
-            raw = bytes(self._buffer[:limit])
-            del self._buffer[:limit]
-        return raw
-
-    def _read_pipe_loop(self) -> None:
-        if self.proc is None or self.proc.stdout is None:
-            return
-        while self.proc.poll() is None:
-            chunk = self.proc.stdout.read(4096)
-            if not chunk:
-                break
-            self._append_buffer(chunk)
-
-    def _complete_password_auth(self, password: str) -> None:
-        if os.name == "nt" or self.master_fd is None:
-            return
-        import select
-
-        deadline = time.time() + 8.0
-        sent_password = False
-        sent_at = 0.0
-        tail = ""
-
-        while time.time() < deadline and self.is_alive():
-            ready, _, _ = select.select([self.master_fd], [], [], 0.12)
-            if not ready:
-                if sent_password and time.time() - sent_at > 0.7:
-                    break
-                continue
-            try:
-                chunk = os.read(self.master_fd, 4096)
-            except (BlockingIOError, OSError):
-                continue
-            if not chunk:
-                break
-
-            self._append_buffer(chunk)
-            tail = (tail + chunk.decode("utf-8", errors="replace")).lower()[-4000:]
-
-            if "are you sure you want to continue connecting" in tail:
-                self.close()
-                raise RuntimeError("SSH host key ainda não foi confiada pelo OpenSSH local.")
-
-            if not sent_password and ("password:" in tail or "senha:" in tail):
-                os.write(self.master_fd, password.encode("utf-8") + b"\n")
-                sent_password = True
-                sent_at = time.time()
-
-        if not self.is_alive():
-            raise RuntimeError("OpenSSH local encerrou antes de abrir o terminal.")
+        except Exception:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
 
     def _resize_pty(self, cols: int, rows: int) -> None:
-        if self.master_fd is None or os.name == "nt":
-            return
-        try:
-            import fcntl
-            import struct
-            import termios
+        import fcntl
+        import struct
+        import termios
 
-            fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        except Exception:
-            pass
+        fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
     def read(self, limit: int = _MAX_READ_BYTES) -> str:
-        buffered = self._drain_buffer(limit)
-        if os.name == "nt":
-            raw = buffered
-            return raw.decode("utf-8", errors="replace") if raw else ""
-
-        if self.master_fd is None:
-            return buffered.decode("utf-8", errors="replace") if buffered else ""
         import select
 
         chunks: list[bytes] = []
-        if buffered:
-            chunks.append(buffered)
-        total = len(buffered)
+        total = 0
         while total < limit:
             ready, _, _ = select.select([self.master_fd], [], [], 0)
             if not ready:
                 break
             try:
                 chunk = os.read(self.master_fd, min(4096, limit - total))
-            except BlockingIOError:
-                break
-            except OSError:
+            except (BlockingIOError, OSError):
                 break
             if not chunk:
                 break
             chunks.append(chunk)
             total += len(chunk)
-        return b"".join(chunks).decode("utf-8", errors="replace") if chunks else ""
+        return self._decoder.decode(b"".join(chunks), final=False) if chunks else ""
 
     def send(self, data: str) -> None:
-        raw = data.encode("utf-8", errors="ignore")
-        if os.name == "nt":
-            if self.proc is None or self.proc.stdin is None:
-                raise RuntimeError("Terminal process is not writable.")
-            self.proc.stdin.write(raw)
-            self.proc.stdin.flush()
-            return
-        if self.master_fd is None:
-            raise RuntimeError("Terminal PTY is not active.")
-        os.write(self.master_fd, raw)
+        os.write(self.master_fd, data.encode("utf-8", errors="ignore"))
 
     def resize(self, cols: int, rows: int) -> None:
         self._resize_pty(cols, rows)
 
     def close(self) -> None:
         if self.proc is not None and self.proc.poll() is None:
-            try:
-                self.proc.terminate()
-            except Exception:
-                pass
-        if self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-            except Exception:
-                pass
-            self.master_fd = None
+            self.proc.terminate()
+        try:
+            os.close(self.master_fd)
+        except OSError:
+            pass
 
 
 class _TerminalSession:
@@ -282,9 +193,11 @@ class _TerminalSession:
         if not text:
             return
         with self._condition:
-            self._seq += 1
-            self._chunks.append((self._seq, text))
-            self._history_chars += len(text)
+            for start in range(0, len(text), _OUTPUT_CHUNK_CHARS):
+                chunk = text[start : start + _OUTPUT_CHUNK_CHARS]
+                self._seq += 1
+                self._chunks.append((self._seq, chunk))
+                self._history_chars += len(chunk)
             while self._chunks and self._history_chars > _MAX_TERMINAL_HISTORY:
                 _, old = self._chunks.pop(0)
                 self._history_chars -= len(old)
@@ -310,23 +223,25 @@ class _TerminalSession:
     def _collect_since_locked(self, since_seq: int, limit: int = _MAX_READ_BYTES) -> tuple[int, str]:
         chunks: list[str] = []
         total = 0
-        current = self._seq
+        current = since_seq
         for seq, text in self._chunks:
             if seq <= since_seq:
                 continue
-            if total >= limit:
+            if chunks and total + len(text) > limit:
                 break
-            chunk = text[: max(0, limit - total)]
-            chunks.append(chunk)
-            total += len(chunk)
+            chunks.append(text)
+            total += len(text)
             current = seq
         return current, "".join(chunks)
 
-    def read(self) -> str:
+    def read_with_sequence(self) -> tuple[int, str]:
         with self._condition:
             seq, output = self._collect_since_locked(self._read_seq)
             self._read_seq = seq
-            return output
+            return seq, output
+
+    def read(self) -> str:
+        return self.read_with_sequence()[1]
 
     def wait_output(self, since_seq: int, timeout: float = 25.0) -> tuple[int, str, bool]:
         deadline = time.time() + max(0.2, timeout)
@@ -394,11 +309,21 @@ def _terminal_matches_current_auth(term: _TerminalSession, session: dict) -> boo
     return term.auth_token == token and term.login == login and term.host == host
 
 
+def _close_terminal_locked(terminal_id: str) -> None:
+    terminal = _terminals.pop(terminal_id, None)
+    if terminal is not None:
+        terminal.close()
+
+
 def _close_locked() -> None:
-    global _terminal
-    if _terminal is not None:
-        _terminal.close()
-    _terminal = None
+    for terminal_id in list(_terminals):
+        _close_terminal_locked(terminal_id)
+
+
+def _prune_terminals_locked(session: dict) -> None:
+    for terminal_id, terminal in list(_terminals.items()):
+        if not terminal.is_alive() or not _terminal_matches_current_auth(terminal, session):
+            _close_terminal_locked(terminal_id)
 
 
 def _terminal_close_active() -> None:
@@ -414,52 +339,20 @@ def _safe_cwd(home: str, raw_cwd: str) -> str:
     return ""
 
 
-def _openssh_target(session: dict) -> str:
-    return str(session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}")
-
-
-def _prefer_local_openssh(session: dict) -> bool:
-    if not shutil.which("ssh"):
-        return False
-    if os.name == "nt":
-        return False
-    auth_mode = str(session.get("auth_mode") or "")
-    if auth_mode == "openssh":
-        return True
-    if session.get("password"):
-        return True
-    # Passwordless Paramiko sessions usually mean local SSH config/agent works too.
-    # Prefer a real local PTY in this case so the browser mirrors a native terminal.
-    return not session.get("password") and bool(session.get("ssh_target") or session.get("login"))
-
-
 def _open_terminal_backend(session: dict, cols: int, rows: int):
-    local_error = ""
-    if _prefer_local_openssh(session):
-        try:
-            backend = _OpenSshTerminal(_openssh_target(session), cols, rows, password=str(session.get("password") or ""))
-            time.sleep(0.08)
-            if backend.is_alive():
-                return backend, "local-openssh"
-            local_error = backend.read().strip()
-            backend.close()
-        except Exception as exc:
-            local_error = str(exc)
+    if session.get("auth_mode") == "openssh" and not session.get("client"):
+        target = session.get("ssh_target") or f"{session.get('login')}@{session.get('host')}"
+        return _OpenSshPtyTerminal(target, cols, rows), "openssh-pty"
 
+    # Password and agent-based Paramiko logins reuse their authenticated
+    # transport instead of starting another authentication flow.
     client = _ensure_active_client(session)
     channel = client.invoke_shell(term="xterm-256color", width=cols, height=rows)
     channel.settimeout(0.0)
-    backend = _ParamikoTerminal(channel)
-    if local_error:
-        try:
-            backend.send(f"printf '%s\\n' {shlex.quote('[Apuana Monitor] local OpenSSH indisponível; usando sessão SSH segura do dashboard.')}\n")
-        except Exception:
-            pass
-    return backend, "paramiko"
+    return _ParamikoTerminal(channel), "paramiko"
 
 
 def _terminal_start_payload(payload: dict) -> dict:
-    global _terminal
     session = _session_client()
     if not session.get("token"):
         return _payload_error("SSH login required.")
@@ -468,28 +361,36 @@ def _terminal_start_payload(payload: dict) -> dict:
     rows = _int_between(payload.get("rows"), 28, 10, 80)
     cwd = _safe_cwd(session.get("home", ""), payload.get("cwd") or "")
 
+    requested_id = str(payload.get("id") or "")
+
     with _terminal_lock:
-        if _terminal is not None:
-            if _terminal.is_alive() and _terminal_matches_current_auth(_terminal, session):
-                try:
-                    _terminal.resize(cols, rows)
-                except Exception:
-                    pass
-                _terminal.updated_at = time.time()
-                return {
-                    "ok": True,
-                    "id": _terminal.id,
-                    "host": _terminal.host,
-                    "login": _terminal.login,
-                    "backend": _terminal.backend_name,
-                    "seq": _terminal.sequence,
-                    "output": _terminal.read(),
-                }
-            _close_locked()
+        _prune_terminals_locked(session)
+        if requested_id:
+            terminal = _terminals.get(requested_id)
+            if terminal is None or not terminal.is_alive():
+                return _payload_error("Terminal session is not active.")
+            try:
+                terminal.resize(cols, rows)
+            except Exception:
+                pass
+            terminal.updated_at = time.time()
+            seq, output = terminal.read_with_sequence()
+            return {
+                "ok": True,
+                "id": terminal.id,
+                "host": terminal.host,
+                "login": terminal.login,
+                "backend": terminal.backend_name,
+                "seq": seq,
+                "output": output,
+            }
+
+        if len(_terminals) >= _MAX_TERMINAL_SESSIONS:
+            return _payload_error(f"Terminal limit reached. Close one tab before opening another ({_MAX_TERMINAL_SESSIONS} max).")
 
         try:
             backend, backend_name = _open_terminal_backend(session, cols, rows)
-            _terminal = _TerminalSession(
+            terminal = _TerminalSession(
                 session_id=uuid.uuid4().hex,
                 auth_token=session["token"],
                 login=session["login"],
@@ -497,22 +398,23 @@ def _terminal_start_payload(payload: dict) -> dict:
                 backend=backend,
                 backend_name=backend_name,
             )
-            output = _terminal.read()
+            _terminals[terminal.id] = terminal
+            seq, output = terminal.read_with_sequence()
             if cwd:
-                _terminal.send(f"cd {shlex.quote(cwd)}\n")
+                terminal.send(f"cd {shlex.quote(cwd)}\n")
                 time.sleep(0.06)
-                output += _terminal.read()
+                seq, cwd_output = terminal.read_with_sequence()
+                output += cwd_output
             return {
                 "ok": True,
-                "id": _terminal.id,
-                "host": _terminal.host,
-                "login": _terminal.login,
-                "backend": _terminal.backend_name,
-                "seq": _terminal.sequence,
+                "id": terminal.id,
+                "host": terminal.host,
+                "login": terminal.login,
+                "backend": terminal.backend_name,
+                "seq": seq,
                 "output": output,
             }
         except Exception as exc:
-            _close_locked()
             return _payload_error(str(exc) or "Could not start Apuana terminal.")
 
 
@@ -526,35 +428,41 @@ def _terminal_input_payload(payload: dict) -> dict:
         return _payload_error("Terminal input is too large.")
 
     with _terminal_lock:
-        if _terminal is None or _terminal.id != terminal_id or not _terminal.is_alive():
+        terminal = _terminals.get(terminal_id)
+        if terminal is None or not terminal.is_alive():
+            if terminal_id:
+                _close_terminal_locked(terminal_id)
             return _payload_error("Terminal session is not active.")
         try:
-            _terminal.send(data)
-            _terminal.updated_at = time.time()
+            terminal.send(data)
+            terminal.updated_at = time.time()
             return {"ok": True}
         except Exception as exc:
-            _close_locked()
+            _close_terminal_locked(terminal_id)
             return _payload_error(str(exc) or "Could not write to terminal.")
 
 
 def _terminal_read_payload(terminal_id: str) -> dict:
     with _terminal_lock:
-        if _terminal is None or _terminal.id != terminal_id:
+        terminal = _terminals.get(terminal_id)
+        if terminal is None:
             return _payload_error("Terminal session is not active.")
-        if not _terminal.is_alive():
-            _close_locked()
+        if not terminal.is_alive():
+            _close_terminal_locked(terminal_id)
             return _payload_error("Terminal session ended.")
-        _terminal.updated_at = time.time()
-        return {"ok": True, "alive": True, "output": _terminal.read()}
+        terminal.updated_at = time.time()
+        return {"ok": True, "alive": True, "output": terminal.read()}
 
 
 def _terminal_event_payload(terminal_id: str, since_seq: int, timeout: float = 25.0) -> dict:
     with _terminal_lock:
-        if _terminal is None or _terminal.id != terminal_id:
+        terminal = _terminals.get(terminal_id)
+        if terminal is None:
             return _payload_error("Terminal session is not active.")
-        terminal = _terminal
 
     if not terminal.is_alive():
+        with _terminal_lock:
+            _close_terminal_locked(terminal_id)
         return _payload_error("Terminal session ended.")
 
     seq, output, alive = terminal.wait_output(since_seq, timeout=timeout)
@@ -583,11 +491,14 @@ def _terminal_resize_payload(payload: dict) -> dict:
     cols = _int_between(payload.get("cols"), 120, 40, 240)
     rows = _int_between(payload.get("rows"), 28, 10, 80)
     with _terminal_lock:
-        if _terminal is None or _terminal.id != terminal_id or not _terminal.is_alive():
+        terminal = _terminals.get(terminal_id)
+        if terminal is None or not terminal.is_alive():
+            if terminal_id:
+                _close_terminal_locked(terminal_id)
             return _payload_error("Terminal session is not active.")
         try:
-            _terminal.resize(cols, rows)
-            _terminal.updated_at = time.time()
+            terminal.resize(cols, rows)
+            terminal.updated_at = time.time()
             return {"ok": True}
         except Exception as exc:
             return _payload_error(str(exc) or "Could not resize terminal.")
@@ -595,7 +506,8 @@ def _terminal_resize_payload(payload: dict) -> dict:
 
 def _terminal_stop_payload(terminal_id: str = "") -> dict:
     with _terminal_lock:
-        if terminal_id and (_terminal is None or _terminal.id != terminal_id):
-            return {"ok": True}
-        _close_locked()
+        if terminal_id:
+            _close_terminal_locked(terminal_id)
+        else:
+            _close_locked()
         return {"ok": True}

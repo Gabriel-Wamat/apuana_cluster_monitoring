@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import venv
 import webbrowser
 from pathlib import Path
@@ -248,6 +249,7 @@ def pyinstaller_available(python: Path) -> bool:
 
 
 def write_macos_pyinstaller_app(app_dir: Path) -> bool:
+    return False
     python = venv_python()
     if not python.exists() or not pyinstaller_available(python):
         return False
@@ -324,6 +326,8 @@ def macos_launcher_is_current(app_dir: Path) -> bool:
     icon = contents / "Resources" / "ApuanaMonitor.icns"
     required = (executable, info, pkg, icon)
     if not all(path.exists() for path in required):
+        return False
+    if (contents / "Frameworks").exists():
         return False
     try:
         info_text = info.read_text(encoding="utf-8", errors="ignore")
@@ -781,6 +785,42 @@ def wait_for_local_port(port: str, timeout: float = 6.0) -> bool:
     return local_port_is_open(port)
 
 
+def dashboard_responds(port: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=0.6) as response:
+            body = response.read(4096).decode("utf-8", errors="ignore")
+        return "Apuana Monitor" in body
+    except Exception:
+        return False
+
+
+def dashboard_has_snapshot(port: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api", timeout=0.8) as response:
+            payload = json.loads(response.read(4096).decode("utf-8", errors="ignore") or "{}")
+        return bool(payload.get("ts"))
+    except Exception:
+        return False
+
+
+def select_port(preferred: str) -> str:
+    if not local_port_is_open(preferred):
+        return preferred
+    if dashboard_responds(preferred) and dashboard_has_snapshot(preferred):
+        return preferred
+
+    for candidate in [8520, *range(8502, 8520), *range(8521, 8600)]:
+        port = str(candidate)
+        if not local_port_is_open(port):
+            print(f"[apuana] port {preferred} is occupied by another service; using {port}")
+            return port
+        if dashboard_responds(port) and dashboard_has_snapshot(port):
+            print(f"[apuana] port {preferred} is occupied; reusing Apuana at {port}")
+            return port
+
+    raise RuntimeError("no available local port for Apuana Monitor")
+
+
 def open_url(url: str) -> None:
     system = platform.system().lower()
     commands: list[list[str]] = []
@@ -894,6 +934,7 @@ def run_desktop_launch(args: argparse.Namespace, url: str) -> int:
 
 def main() -> int:
     args = parse_args()
+    args.port = select_port(str(args.port))
     url = f"http://127.0.0.1:{args.port}/"
     if args.prepare_only:
         launcher = ensure_desktop_launcher()

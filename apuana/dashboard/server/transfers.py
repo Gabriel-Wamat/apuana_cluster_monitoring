@@ -150,7 +150,7 @@ def _upload_local_tree(sftp, local_path: Path, remote_path: str, home_root: str)
 def _execute_transfer(mode: str, local_path: str, remote_path: str, include_contents: bool) -> dict:
     session = _session_public()
     login = session.get("login") or ""
-    remote_home = session.get("home") or f"/home/CIN/{login}"
+    remote_home = session.get("home") or f"/home/{login}"
     if not login:
         return {"ok": False, "error": "SSH login required before executing transfers."}
 
@@ -275,6 +275,23 @@ def _remote_spec(login: str, host: str, remote_path: str) -> str:
     return f"{login}@{host}:{remote_path}"
 
 
+def _remote_spec_for_session(session: dict, login: str, host: str, remote_path: str) -> str:
+    target = (session.get("ssh_target") or "").strip()
+    password = session.get("password") or ""
+    if target and not password and session.get("auth_mode") in {"openssh", "paramiko-agent"}:
+        return f"{target}:{remote_path}"
+    return _remote_spec(login, host, remote_path)
+
+
+def _uses_external_ssh_session(session: dict) -> bool:
+    return bool(
+        session.get("token")
+        and not session.get("password")
+        and session.get("auth_mode") in {"openssh", "paramiko-agent"}
+        and session.get("ssh_target")
+    )
+
+
 def _build_rsync_env(password: str, base_command: list, display: str) -> tuple[list, dict, str, str]:
     """Configura autenticação para rsync. Retorna (command, env, auth_method, askpass_path)."""
     env = os.environ.copy()
@@ -357,14 +374,22 @@ _RSYNC_SSH_OPTIONS = [
     "ssh",
     "-o", "StrictHostKeyChecking=accept-new",
     "-o", "NumberOfPasswordPrompts=1",
+    "-o", "ServerAliveInterval=15",
+    "-o", "ServerAliveCountMax=20",
+    "-o", "TCPKeepAlive=yes",
+    "-o", "RekeyLimit=64G",
+    "-o", "IPQoS=throughput",
 ]
+
+_RSYNC_FLAGS = "-avP"
+_RSYNC_UPLOAD_OPTIONS = ["--append"]
 
 
 def _execute_rsync_download(local_path: str, remote_path: str, include_contents: bool) -> dict:
     session = _session_client()
     login = session.get("login") or ""
     host = TRANSFER_HOST or session.get("host") or ""
-    remote_home = session.get("home") or f"/home/CIN/{login}"
+    remote_home = session.get("home") or f"/home/{login}"
     password = session.get("password") or ""
     if not login or not host:
         return {"ok": False, "error": "SSH login required before executing download."}
@@ -380,12 +405,13 @@ def _execute_rsync_download(local_path: str, remote_path: str, include_contents:
     if not rsync:
         return _execute_transfer("download", local_path, remote_path, include_contents)
 
+    remote_spec = _remote_spec_for_session(session, login, host, normalized_remote)
     base_command = [
-        rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),
-        _remote_spec(login, host, normalized_remote),
+        rsync, _RSYNC_FLAGS, "-e", " ".join(_RSYNC_SSH_OPTIONS),
+        remote_spec,
         normalized_local,
     ]
-    display = "rsync -avzP " + " ".join([_remote_spec(login, host, normalized_remote), normalized_local])
+    display = f"rsync {_RSYNC_FLAGS} " + " ".join([remote_spec, normalized_local])
     command, env, auth_method, askpass_path = _build_rsync_env(password, base_command, display)
     return _run_rsync(command, display, env, auth_method, askpass_path)
 
@@ -394,7 +420,7 @@ def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: b
     session = _session_client()
     login = session.get("login") or ""
     host = TRANSFER_HOST or session.get("host") or ""
-    remote_home = session.get("home") or f"/home/CIN/{login}"
+    remote_home = session.get("home") or f"/home/{login}"
     password = session.get("password") or ""
     if not login or not host:
         return {"ok": False, "error": "SSH login required before executing upload."}
@@ -414,12 +440,14 @@ def _execute_rsync_upload(local_path: str, remote_path: str, include_contents: b
     if not rsync:
         return _execute_transfer("upload", local_path, remote_path, include_contents)
 
+    remote_spec = _remote_spec_for_session(session, login, host, normalized_remote)
     base_command = [
-        rsync, "-avzP", "-e", " ".join(_RSYNC_SSH_OPTIONS),
+        rsync, _RSYNC_FLAGS, "-e", " ".join(_RSYNC_SSH_OPTIONS),
+        *_RSYNC_UPLOAD_OPTIONS,
         normalized_local,
-        _remote_spec(login, host, normalized_remote),
+        remote_spec,
     ]
-    display = "rsync -avzP " + " ".join([normalized_local, _remote_spec(login, host, normalized_remote)])
+    display = f"rsync {_RSYNC_FLAGS} " + " ".join([normalized_local, remote_spec])
     command, env, auth_method, askpass_path = _build_rsync_env(password, base_command, display)
     return _run_rsync(command, display, env, auth_method, askpass_path)
 
@@ -529,9 +557,9 @@ def _safe_upload_name(raw: str) -> PurePosixPath:
 
 
 def _upload_streams(files: list[tuple[str, object]], remote_path: str) -> dict:
-    session = _session_public()
+    session = _session_client()
     login = session.get("login") or ""
-    remote_home = session.get("home") or f"/home/CIN/{login}"
+    remote_home = session.get("home") or f"/home/{login}"
     if not login:
         return {"ok": False, "error": "SSH login required before executing upload."}
     if not files:
@@ -541,6 +569,32 @@ def _upload_streams(files: list[tuple[str, object]], remote_path: str) -> dict:
     if remote_err:
         return {"ok": False, "error": remote_err}
     remote_base = normalized_remote.rstrip("/")
+
+    if _uses_external_ssh_session(session):
+        uploaded = 0
+        bytes_total = 0
+        with tempfile.TemporaryDirectory(prefix="apuana-selected-upload-") as tmp:
+            tmp_root = Path(tmp)
+            for filename, stream in files:
+                rel = _safe_upload_name(filename)
+                local_file = tmp_root / Path(*rel.parts)
+                local_file.parent.mkdir(parents=True, exist_ok=True)
+                with local_file.open("wb") as out:
+                    while True:
+                        chunk = stream.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        bytes_total += len(chunk)
+                uploaded += 1
+            result = _execute_rsync_upload(str(tmp_root) + "/", remote_base + "/", include_contents=True)
+        if result.get("ok"):
+            result.update({
+                "files": uploaded,
+                "bytes": bytes_total,
+                "stdout": (result.get("stdout") or "") + f"\nUploaded {uploaded} selected file(s), {bytes_total} bytes.",
+            })
+        return result
 
     try:
         client, active_session = _ensure_session_ssh_client()

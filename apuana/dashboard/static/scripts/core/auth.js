@@ -52,8 +52,9 @@ function loadAuthState() {
     sshAuth.token = String(parsed.token || '');
     sshAuth.remember = !!parsed.remember;
     sshAuth.loggedIn = !!sshAuth.login && !!sshAuth.token;
+    sshAuth.validated = false;
   } catch (_) {
-    sshAuth = {login:'', token:'', remember:false, loggedIn:false};
+    sshAuth = {login:'', token:'', remember:false, loggedIn:false, validated:false};
   }
 }
 
@@ -76,6 +77,7 @@ function applyAuthUi() {
 function forceAuthRequired() {
   sshAuth.token = '';
   sshAuth.loggedIn = false;
+  sshAuth.validated = false;
   clusterDataReady = false;
   clusterBootNoticeShown = false;
   if (_loaderHideTimer) {
@@ -96,6 +98,7 @@ function setAuthenticatedSession(body, options = {}) {
     token: _e3(body.token || ''),
     remember: options.remember !== undefined ? !!options.remember : true,
     loggedIn: !!login && !!body.token,
+    validated: !!login && !!body.token,
   };
   persistAuthState();
   applyAuthUi();
@@ -107,6 +110,7 @@ function setAuthenticatedSession(body, options = {}) {
       home: body.home || '',
     },
   }, {forceHome: true});
+  if (codeTerminalState.open && typeof scheduleCodeTerminalStart === 'function') scheduleCodeTerminalStart();
 }
 
 function isVpnFailure(code, detail) {
@@ -135,6 +139,7 @@ async function validateAuthSession() {
       return false;
     }
     sshAuth.login = normalizeLogin(data.login || data.username || sshAuth.login);
+    sshAuth.validated = true;
     persistAuthState();
     syncTransferMeta({
       user: sshAuth.login,
@@ -144,6 +149,7 @@ async function validateAuthSession() {
         home: data.home || '',
       },
     }, {forceHome: true});
+    if (codeTerminalState.open && typeof scheduleCodeTerminalStart === 'function') scheduleCodeTerminalStart();
     return true;
   } catch (_) {
     forceAuthRequired();

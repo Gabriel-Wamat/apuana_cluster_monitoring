@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Apuana Monitor Configuration",
+  "description": "Configuração do Apuana Cluster Monitoring Dashboard",
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "object",
+      "description": "Configurações do servidor HTTP local",
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 8501,
+          "description": "Porta HTTP do servidor local"
+        },
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host do servidor (use 127.0.0.1 para acesso local apenas)"
+        }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "description": "Configurações do cluster SLURM",
+      "properties": {
+        "ssh_host": {
+          "type": "string",
+          "description": "Hostname do servidor SSH para comandos SLURM"
+        },
+        "transfer_host": {
+          "type": "string",
+          "description": "Hostname usado para transferência de arquivos (rsync/scp)"
+        },
+        "default_user": {
+          "type": ["string", "null"],
+          "description": "Usuário padrão para login SSH (null = solicitar no login)"
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "description": "Caminhos de diretórios (relativos à raiz do projeto)",
+      "properties": {
+        "research_templates": {
+          "type": "string",
+          "description": "Diretório dos templates de research jobs"
+        },
+        "dashboard_root": {
+          "type": "string",
+          "description": "Diretório raiz do dashboard (contém static/)"
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "description": "Features opcionais do sistema",
+      "properties": {
+        "auto_login": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tentar auto-login com chave SSH ao iniciar"
+        },
+        "keychain_integration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Usar Keychain/SecretService para salvar credenciais"
+        },
+        "browser_auto_open": {
+          "type": "boolean",
+          "default": true,
+          "description": "Abrir navegador automaticamente ao iniciar"
+        }
+      }
+    }
+  }
+}

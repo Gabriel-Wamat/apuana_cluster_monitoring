@@ -1,0 +1,8 @@
+{
+  "$schema": "./apuana.config.schema.json",
+  "cluster": {
+    "ssh_host": "outro-cluster.universidade.br",
+    "transfer_host": "outro-cluster.universidade.br",
+    "default_user": "seu_usuario"
+  }
+}

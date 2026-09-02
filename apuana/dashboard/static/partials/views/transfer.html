@@ -157,4 +157,22 @@
         <div id="remote-edit-status" class="remote-edit-status"></div>
       </div>
     </div>
+
+    <div class="remote-modal" id="remote-image-modal" aria-hidden="true">
+      <div class="remote-modal-card remote-image-card">
+        <div class="remote-edit-head">
+          <div>
+            <h3 id="remote-image-title">Image preview</h3>
+            <p id="remote-image-path">-</p>
+          </div>
+          <button class="icon-btn" id="remote-image-close" type="button" aria-label="Close image preview" title="Close image preview">
+            <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+        <div class="remote-image-stage">
+          <img id="remote-image-content" alt="Remote image preview" hidden>
+          <div id="remote-image-status" class="remote-image-status loading">Loading image from Apuana...</div>
+        </div>
+      </div>
+    </div>
   </div>

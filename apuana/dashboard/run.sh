@@ -15,10 +15,8 @@ Usage: ./run.sh
 Environment:
   SLURM_MONITOR_PORT           HTTP port, default: 8501
   SLURM_MONITOR_PYTHON         Python executable, default: python3
-  SLURM_MONITOR_TRANSFER_HOST  Host used in generated rsync commands,
-                               default: slurm-client1.cin.ufpe.br
-  SLURM_MONITOR_SSH_HOST       Apuana SSH host used by the local server,
-                               default: slurm-client2.cin.ufpe.br
+  SLURM_MONITOR_TRANSFER_HOST  Host used in generated rsync commands.
+  SLURM_MONITOR_SSH_HOST       SSH host used by the local server.
 
 Run this command on your own machine, then open:
   http://127.0.0.1:8501

@@ -9,7 +9,7 @@ function settingsBool(value) {
 
 function getUserSettingsData() {
   const login = normalizeLogin(sshAuth.login || transferState.user || _last.user || '');
-  const home = transferState.home || _last.home || _last.transfer?.home || (login ? `/home/CIN/${login}` : '');
+  const home = transferState.home || _last.home || _last.transfer?.home || (login ? `/home/${login}` : '');
   return {
     login,
     host: transferState.host || _last.transfer?.host || _last.node || '',

@@ -182,8 +182,15 @@ bash -n apuana/dashboard/run.sh
 Se tiver Node.js instalado:
 
 ```bash
-find apuana/dashboard/static/scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+npm ci
+npm run build:code-vendor
+npm test
+npm run check:js
+python -m unittest discover -s tests -v
 ```
+
+O build gera localmente os bundles versionados do Monaco Editor e do xterm.js.
+O aplicativo em execução não depende de CDN nem exige Node.js instalado.
 
 ## Licença
 

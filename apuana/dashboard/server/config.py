@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -26,8 +27,8 @@ def _load_config() -> Dict[str, Any]:
     defaults = {
         "server": {"port": 8501, "host": "127.0.0.1"},
         "cluster": {
-            "ssh_host": "slurm-client2.cin.ufpe.br",
-            "transfer_host": "slurm-client1.cin.ufpe.br",
+            "ssh_host": "",
+            "transfer_host": "",
             "default_user": None,
         },
         "paths": {
@@ -66,12 +67,12 @@ _CONFIG = _load_config()
 _PROJECT_ROOT = _find_project_root()
 
 # Server config
-PORT = _CONFIG["server"]["port"]
-HOST = _CONFIG["server"]["host"]
+PORT = int(os.environ.get("SLURM_MONITOR_PORT") or _CONFIG["server"]["port"])
+HOST = os.environ.get("SLURM_MONITOR_HOST") or _CONFIG["server"]["host"]
 
 # Cluster config
-SSH_HOST = _CONFIG["cluster"]["ssh_host"]
-TRANSFER_HOST = _CONFIG["cluster"]["transfer_host"]
+SSH_HOST = os.environ.get("SLURM_MONITOR_SSH_HOST") or _CONFIG["cluster"]["ssh_host"]
+TRANSFER_HOST = os.environ.get("SLURM_MONITOR_TRANSFER_HOST") or _CONFIG["cluster"]["transfer_host"]
 DEFAULT_USER = _CONFIG["cluster"].get("default_user")
 
 # Features
@@ -97,4 +98,5 @@ STATIC_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".ttf": "font/ttf",
 }
